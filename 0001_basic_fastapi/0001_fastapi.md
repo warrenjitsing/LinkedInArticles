@@ -1171,9 +1171,9 @@ After the tests complete, you will see a report similar to this at the bottom of
 
 ```text
 ================================================== test session starts ==================================================
-platform linux -- Python 3.11.2, pytest-8.4.1, pluggy-1.6.0 -- /home/warren_jitsing/Documents/soul/personal/linkedin/repo/0001_basic_fastapi/.venv/bin/python3
+platform linux -- Python 3.11.2, pytest-8.4.1, pluggy-1.6.0 -- xxx
 cachedir: .pytest_cache
-rootdir: /home/warren_jitsing/Documents/soul/personal/linkedin/repo/0001_basic_fastapi
+rootdir: xxx
 plugins: cov-6.2.1, anyio-4.10.0
 collected 12 items                                                                                                      
 
