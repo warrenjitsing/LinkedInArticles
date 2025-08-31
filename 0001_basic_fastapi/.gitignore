@@ -1,3 +1,5 @@
 *pycache*
 .idea
 .venv
+*.pem
+.coverage

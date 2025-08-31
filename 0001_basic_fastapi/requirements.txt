@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+websockets
+httpx
+pytest
+pytest-cov
