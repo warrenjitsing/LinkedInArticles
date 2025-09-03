@@ -703,7 +703,7 @@ rustc 1.89.0 (29483883e 2025-08-04)
 
 This confirms that our shells are correctly configured to use our new compilers by default.
 
-## A Full Compilation Test**
+## A Full Compilation Test
 
 The ultimate test is to compile and run a simple program. Let's create a "Hello World" program in C:
 
