@@ -661,7 +661,7 @@ With our image built and the container running, the final step is to connect to 
 
 Let's begin by connecting to the container's shell via SSH.
 
-## Connecting via SSH**
+## Connecting via SSH
 
 Open a new terminal on your host machine and use the following command to connect. This command assumes your private key is `id_rsa`; you may need to adjust this if you used a different key.
 
@@ -671,7 +671,7 @@ ssh -i ~/.ssh/id_rsa -p 10200 $USER@127.0.0.1
 
 The first time you connect, you will see a message about the authenticity of the host, which is expected. Type `yes` to proceed. You should now be logged into the container, and your shell prompt will change to reflect the container's hostname.
 
-## Verifying the Custom Toolchains**
+## Verifying the Custom Toolchains
 
 Now that we're inside the container, let's check that our custom-compiled toolchains are the default.
 
@@ -738,7 +738,7 @@ String dump of section '.comment':
 
 This confirms that our entire C++ toolchain is working perfectly from end to end.
 
-## Checking Background Services and Connectivity**
+## Checking Background Services and Connectivity
 
 Finally, let's verify that our background services are running and that we have internet access.
 
@@ -777,7 +777,7 @@ The document has moved
 This successful `curl` request confirms our container is fully connected and operational.
 
 
-### ### Daily Workflow: Connecting with a Remote IDE
+## Connecting with a Remote IDE
 
 One of the most powerful features of our SSH-enabled container is the ability to connect to it with a full-featured desktop IDE, such as VS Code (using the Remote-SSH extension) or any JetBrains IDE (CLion, PyCharm, RustRover). This gives you the best of both worlds: a rich local editing experience, while all the heavy lifting of compiling and running code happens inside our consistent, powerful container.
 
