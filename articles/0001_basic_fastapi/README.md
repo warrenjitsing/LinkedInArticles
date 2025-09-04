@@ -2,7 +2,7 @@
 
 For the optimal reading experience and access to the complete, version-controlled source code, the definitive version of this article is hosted on GitHub. I highly recommend following along there:
 
-[A First-Principles Guide to HTTP and WebSockets in FastAPI](https://github.com/warrenjitsing/LinkedInArticles/tree/main/0001_basic_fastapi)
+[A First-Principles Guide to HTTP and WebSockets in FastAPI](https://github.com/warrenjitsing/LinkedInArticles/tree/main/articles/0001_basic_fastapi)
 
 This repository also includes an AI assistant bootloader in the `ai.md` file. By providing this bootloader and the article's contents to a capable AI assistant, you can transform this guide into a dynamic, interactive learning tool and project builder. Due to the large context required, a pro-tier subscription to your chosen AI service (such as ChatGPT Plus or Gemini Advanced) is highly recommended for the best results.
 
