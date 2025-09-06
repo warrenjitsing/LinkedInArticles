@@ -13,12 +13,20 @@ ARG SSH_DIR
 
 RUN apt update \
     && apt install -y \
-        sudo openssh-client openssh-server nano procps less build-essential cmake curl wget git \
-        pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev \
-        libffi-dev libsqlite3-dev wget curl pkg-config libbz2-dev libgdbm-compat-dev liblzma-dev \
-        lzma uuid-dev python3-tk ca-certificates openssl ca-certificates fontconfig git-lfs \
-        patch tzdata netbase iproute2 python3-full python3-dev python3-pip wget libzstd-dev \
-        libzstd1 flex libfl-dev libfl2 m4 gnupg2 tmux \
+        build-essential ca-certificates cmake curl flex fontconfig \
+        fonts-liberation git git-lfs gnupg2 iproute2 \
+        less libappindicator3-1 libasound2 libatk-bridge2.0-0 libatk1.0-0 \
+        libatspi2.0-0 libbz2-dev libcairo2 libcups2 libdbus-1-3 \
+        libffi-dev libfl-dev libfl2 libgbm1 libgdbm-compat-dev \
+        libgdbm-dev libglib2.0-0 libgtk-3-0 liblzma-dev libncurses5-dev \
+        libnss3 libnss3-dev libpango-1.0-0 libreadline-dev libsqlite3-dev \
+        libssl-dev libu2f-udev libx11-xcb1 libxcb-dri3-0 libxcomposite1 \
+        libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 libxshmfence1 \
+        libxss1 libzstd-dev libzstd1 lzma m4 \
+        nano netbase openssh-client openssh-server openssl \
+        patch pkg-config procps python3-dev python3-full \
+        python3-pip python3-tk sudo tmux tzdata \
+        uuid-dev wget xvfb zlib1g-dev \
     && apt upgrade -y \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* \
