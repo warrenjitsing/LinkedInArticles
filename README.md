@@ -19,17 +19,21 @@ To get the entire environment up and running, follow these steps from your termi
     git clone https://github.com/warrenjitsing/LinkedInArticles.git
     cd LinkedInArticles
     ```
-2.  **Build the Docker Image**
+2.  **Install Docker and Nvidia Container Toolkit**
+    ```shell
+    bash install-docker.sh
+    ```
+3.  **Build the Docker Image**
     This script will build your custom development environment. The initial build is a one-time process and may take a significant amount of time as it compiles GCC and Python from source.
     ```shell
     bash build-dev.sh
     ```
-3.  **Run the Container**
+4.  **Run the Container**
     This script starts the container with all services running in the background.
     ```shell
     bash dev-container.sh
     ```
-4.  **Access Your Services**
+5.  **Access Your Services**
       * **SSH / IDE Connection**: Connect to the container's shell or your remote IDE.
         ```shell
         ssh -p 10200 your_user@127.0.0.1
