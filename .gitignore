@@ -14,3 +14,6 @@ repos/
 # Configuration file to switch build types
 dev.conf
 
+# Coverage
+.coverage
+htmlcov
