@@ -1,0 +1,12 @@
+# .gitignore
+
+# Python
+__pycache__/
+*.pyc
+
+# All venvs
+.venv
+
+
+data/
+repos/
