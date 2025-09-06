@@ -40,8 +40,9 @@ RUN if [ "$INSTALL_CUDA_IN_CONTAINER" = "true" ]; then \
         echo "--- Installing CUDA Toolkit ---"; \
         wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb; \
         dpkg -i cuda-keyring_1.1-1_all.deb; \
-        sudo apt update && apt-get install -y cuda-tools-13-0 cuda-toolkit && \
+        sudo apt update && sudo apt-get install -y cuda-tools-13-0 cuda-toolkit && \
         rm -rf /var/lib/apt/lists/* && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+        echo 'export PATH="/usr/local/cuda/bin:${PATH}"' > /etc/profile.d/cuda.sh; \
     fi
 
 RUN groupadd --gid $USER_GID $USERNAME \
