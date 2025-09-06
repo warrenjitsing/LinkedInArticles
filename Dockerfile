@@ -28,6 +28,8 @@ RUN apt update \
         patch pkg-config procps python3-dev python3-full \
         python3-pip python3-tk sudo tmux tzdata \
         uuid-dev wget xvfb zlib1g-dev \
+        linux-perf bpftrace bpfcc-tools tcpdump ethtool linuxptp hwloc numactl strace \
+        ltrace \
     && apt upgrade -y \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* \
