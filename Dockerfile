@@ -38,7 +38,10 @@ RUN apt update \
 # Conditionally install CUDA toolkit inside the container
 RUN if [ "$INSTALL_CUDA_IN_CONTAINER" = "true" ]; then \
         echo "--- Installing CUDA Toolkit ---"; \
-        sudo apt-get install -y nvidia-cuda-toolkit nvidia-cuda-dev nvidia-cuda-gdb nvidia-profiler; \
+        wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb; \
+        dpkg -i cuda-keyring_1.1-1_all.deb; \
+        sudo apt update && apt-get install -y cuda-tools-13-0 && \
+        rm -rf /var/lib/apt/lists/* && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     fi
 
 RUN groupadd --gid $USER_GID $USERNAME \
