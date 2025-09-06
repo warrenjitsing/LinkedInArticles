@@ -10,6 +10,7 @@ ARG USERNAME
 ARG USER_UID
 ARG USER_GID
 ARG SSH_DIR
+ARG INSTALL_CUDA_IN_CONTAINER="false"
 
 RUN apt update \
     && apt install -y \
