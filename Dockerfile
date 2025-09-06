@@ -35,6 +35,12 @@ RUN apt update \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false
 
+# Conditionally install CUDA toolkit inside the container
+RUN if [ "$INSTALL_CUDA_IN_CONTAINER" = "true" ]; then \
+        echo "--- Installing CUDA Toolkit ---"; \
+        sudo apt-get install -y nvidia-cuda-toolkit nvidia-cuda-dev nvidia-cuda-gdb nvidia-profiler; \
+    fi
+
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
     && sed -i "s/#PubkeyAuthentication yes/PubkeyAuthentication yes/g" /etc/ssh/sshd_config \
