@@ -1,0 +1,59 @@
+cmake_minimum_required(VERSION 3.25)
+project(MultiLanguageHttpClient LANGUAGES C CXX)
+
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include_directories(include)
+
+link_directories(BEFORE /usr/local/lib64/)
+set(CMAKE_EXE_LINKER_FLAGS "-L/usr/local/lib64/ -Wl,-rpath,/usr/local/lib64/")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    message(STATUS "Enabling coverage flags for Debug build")
+    add_compile_options(-fprofile-arcs -ftest-coverage)
+    add_link_options(-fprofile-arcs -ftest-coverage)
+endif()
+
+
+include(FetchContent)
+
+FetchContent_Declare(
+    Corrosion
+    GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+    GIT_TAG v0.5.2
+)
+FetchContent_MakeAvailable(Corrosion)
+
+FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0
+)
+
+FetchContent_MakeAvailable(googletest)
+
+
+set(Python_EXECUTABLE ${CMAKE_SOURCE_DIR}/.venv/bin/python3.12)
+
+find_package(Python 3.12 REQUIRED COMPONENTS Interpreter)
+
+enable_testing()
+add_subdirectory(src/c)
+add_subdirectory(src/cpp)
+add_subdirectory(tests)
+
+corrosion_import_crate(MANIFEST_PATH src/rust/Cargo.toml)
+
+#add_custom_target(python_wheel
+#    COMMAND ${Python_EXECUTABLE} -m build --wheel
+#            --outdir ${CMAKE_BINARY_DIR}/wheelhouse
+#            ${CMAKE_SOURCE_DIR}/src/python
+#    COMMENT "Building Python wheel..."
+#    VERBATIM
+#)
+#
+#add_dependencies(httpc python_wheel)
+#add_dependencies(httpcpp python_wheel)
