@@ -20,6 +20,11 @@ typedef struct {
     size_t num_headers;
 } HttpRequest;
 
+typedef enum {
+    HTTP_RESPONSE_UNSAFE_ZERO_COPY,
+    HTTP_RESPONSE_SAFE_OWNING,
+} HttpResponseMemoryPolicy;
+
 typedef struct {
     int status_code;
     const char* status_message;
@@ -27,7 +32,10 @@ typedef struct {
     size_t body_len;
     HttpHeader headers[32];
     size_t num_headers;
+    void* _owned_buffer;
 } HttpResponse;
+
+void http_response_destroy(HttpResponse* response);
 
 typedef struct {
     void* context;

@@ -50,13 +50,8 @@ static void http_response_parse_headers(Http1Protocol* self, HttpResponse* res, 
     }
 }
 
-static Error http1_protocol_perform_request(void* context,
-                                            const HttpRequest* request,
-                                            HttpResponse* response) {
-    Http1Protocol* self = (Http1Protocol*)context;
+static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* request) {
     Error err = {ErrorType.NONE, 0};
-    ssize_t bytes_written = 0;
-
     self->buffer.len = 0;
 
     const char* method_str = request->method == HTTP_GET ? "GET" : "POST";
@@ -80,9 +75,11 @@ static Error http1_protocol_perform_request(void* context,
         if (err.type != ErrorType.NONE) return err;
     }
 
-    err = self->transport->write(self->transport->context, self->buffer.data, self->buffer.len, &bytes_written);
-    if (err.type != ErrorType.NONE) return err;
+    return err;
+}
 
+static Error read_and_parse_response(Http1Protocol* self, HttpResponse* response) {
+    Error err = {ErrorType.NONE, 0};
     self->buffer.len = 0;
 
     int content_length = -1;
@@ -148,6 +145,26 @@ static Error http1_protocol_perform_request(void* context,
     }
 
     return (Error){ErrorType.NONE, 0};
+}
+
+static Error http1_protocol_perform_request(void* context,
+                                            const HttpRequest* request,
+                                            HttpResponse* response) {
+    Http1Protocol* self = (Http1Protocol*)context;
+    Error err = {ErrorType.NONE, 0};
+    ssize_t bytes_written = 0;
+
+    err = build_request_in_buffer(self, request);
+    if (err.type != ErrorType.NONE) {
+        return err;
+    }
+
+    err = self->transport->write(self->transport->context, self->buffer.data, self->buffer.len, &bytes_written);
+    if (err.type != ErrorType.NONE) {
+        return err;
+    }
+
+    return read_and_parse_response(self, response);
 }
 
 

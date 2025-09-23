@@ -3,3 +3,4 @@ build_release
 .idea
 .venv
 Cargo.lock
+*pycache*

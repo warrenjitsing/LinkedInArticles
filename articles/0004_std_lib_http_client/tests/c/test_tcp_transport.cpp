@@ -443,3 +443,23 @@ TEST_F(TcpTransportTest, CloseFailsOnSyscallError) {
     ASSERT_EQ(close_err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(close_err.code, TransportErrorCode.SOCKET_CLOSE_FAILURE);
 }
+
+TEST_F(TcpTransportTest, WriteFailsIfNotConnected) {
+    const char* message = "test";
+    ssize_t bytes_written = 0;
+    Error err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+TEST_F(TcpTransportTest, ReadFailsIfNotConnected) {
+    char buffer[32] = {};
+    ssize_t bytes_read = 0;
+    Error err = transport->read(transport->context, buffer, sizeof(buffer), &bytes_read);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_READ_FAILURE);
+    ASSERT_EQ(bytes_read, -1);
+}

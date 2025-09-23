@@ -3,7 +3,6 @@
 #include <httpc/transport.h>
 #include <httpc/http_protocol.h>
 
-
 static const struct {
     const int UNIX;
     const int TCP;
@@ -18,25 +17,9 @@ static const struct {
     .HTTP1 = 1,
 };
 
-struct HttpProtocolInterface;
-struct HttpClient;
-
-Error http_client_init(struct HttpClient* self, int transport_type, int protocol_type);
-Error http_client_init_with_protocol(struct HttpClient* self, struct HttpProtocolInterface* protocol);
-void http_client_destroy(struct HttpClient* self);
-
-struct HttpProtocolInterface {
-    void* context;
-    struct TransportInterface* transport;
-    Error (*connect)(void* context, const char* host, int port);
-    Error (*disconnect)(void* context);
-    Error (*perform_request)(void* context,
-                             const HttpRequest* request,
-                             HttpResponse* response);
-};
 
 struct HttpClient {
-    struct HttpProtocolInterface* protocol;
+    HttpProtocolInterface* protocol;
     Error (*get)(struct HttpClient* self,
                  const char* path,
                  HttpResponse* response);
@@ -45,3 +28,10 @@ struct HttpClient {
                   const char* body,
                   HttpResponse* response);
 };
+
+Error http_client_init(struct HttpClient* self, int transport_type, int protocol_type);
+Error http_client_init_with_protocol(struct HttpClient* self, HttpProtocolInterface* protocol);
+void http_client_destroy(struct HttpClient* self);
+
+
+

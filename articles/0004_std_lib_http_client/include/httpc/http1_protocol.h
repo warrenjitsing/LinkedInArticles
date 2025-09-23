@@ -11,5 +11,9 @@ typedef struct {
 } Http1Protocol;
 
 
-HttpProtocolInterface* http1_protocol_new(TransportInterface* transport, const HttpcSyscalls* syscalls_override);
+HttpProtocolInterface* http1_protocol_new(
+    TransportInterface* transport,
+    const HttpcSyscalls* syscalls_override,
+    HttpResponseMemoryPolicy policy // New parameter
+);
 void http1_protocol_destroy(HttpProtocolInterface* protocol);

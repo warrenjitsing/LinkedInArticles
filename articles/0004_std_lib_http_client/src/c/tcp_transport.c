@@ -55,6 +55,10 @@ static Error tcp_transport_connect(void* context, const char* host, int port) {
 
 static Error tcp_transport_write(void* context, const void* buffer, size_t len, ssize_t* bytes_written) {
     TcpClient* self = (TcpClient*)context;
+    if (self->fd <= 0) {
+        *bytes_written = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
     *bytes_written = self->syscalls->write(self->fd, buffer, len);
     if (*bytes_written == -1) {
         return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
@@ -64,6 +68,10 @@ static Error tcp_transport_write(void* context, const void* buffer, size_t len, 
 
 static Error tcp_transport_read(void* context, void* buffer, size_t len, ssize_t* bytes_read) {
     TcpClient* self = (TcpClient*)context;
+    if (self->fd <= 0) {
+        *bytes_read = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_READ_FAILURE};
+    }
     *bytes_read = self->syscalls->read(self->fd, buffer, len);
     if (*bytes_read == -1) {
         return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_READ_FAILURE};

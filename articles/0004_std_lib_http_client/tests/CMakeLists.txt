@@ -4,10 +4,13 @@ add_executable(httpc_tests
         c/test_tcp_transport.cpp
         c/test_unix_transport.cpp
         c/test_http1_protocol.cpp
+        c/test_httpc.cpp
 )
 
 add_executable(httpcpp_tests
         test_main.cpp
+        cpp/test_tcp_transport.cpp
+        cpp/test_unix_transport.cpp
 )
 
 target_link_libraries(httpc_tests PRIVATE
