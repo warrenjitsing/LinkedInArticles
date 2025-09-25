@@ -3,6 +3,7 @@ add_library(
         SHARED
         tcp_transport.cpp
         unix_transport.cpp
+        http1_protocol.cpp
 )
 
 target_include_directories(httpcpp_lib

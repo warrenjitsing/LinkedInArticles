@@ -1,3 +1,6 @@
+include(GoogleTest)
+
+# --- C Language Tests ---
 add_executable(httpc_tests
         test_main.cpp
         c/test_syscalls.cpp
@@ -7,24 +10,40 @@ add_executable(httpc_tests
         c/test_httpc.cpp
 )
 
-add_executable(httpcpp_tests
-        test_main.cpp
-        cpp/test_tcp_transport.cpp
-        cpp/test_unix_transport.cpp
-)
-
 target_link_libraries(httpc_tests PRIVATE
         httpc_lib
         GTest::gmock
         GTest::gtest_main
 )
+gtest_discover_tests(httpc_tests)
 
-target_link_libraries(httpcpp_tests PRIVATE
+
+# Compiling separately because of experimental::net linkage bug
+
+# --- C++ Transport Tests ---
+add_executable(httpcpp_transport_tests
+        test_main.cpp
+        cpp/test_tcp_transport.cpp
+        cpp/test_unix_transport.cpp
+)
+
+target_link_libraries(httpcpp_transport_tests PRIVATE
         httpcpp_lib
         GTest::gmock
         GTest::gtest_main
 )
+gtest_discover_tests(httpcpp_transport_tests)
 
-include(GoogleTest)
-gtest_discover_tests(httpc_tests)
-gtest_discover_tests(httpcpp_tests)
+
+# --- C++ Protocol Tests (NEW) ---
+add_executable(httpcpp_protocol_tests
+        test_main.cpp
+        cpp/test_http1_protocol.cpp
+)
+
+target_link_libraries(httpcpp_protocol_tests PRIVATE
+        httpcpp_lib
+        GTest::gmock
+        GTest::gtest_main
+)
+gtest_discover_tests(httpcpp_protocol_tests)

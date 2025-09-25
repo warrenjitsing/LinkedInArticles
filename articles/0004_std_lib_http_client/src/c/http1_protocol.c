@@ -78,7 +78,8 @@ static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* req
     return err;
 }
 
-static Error read_and_parse_response(Http1Protocol* self, HttpResponse* response) {
+static Error parse_response_unsafe(void* context, HttpResponse* response) {
+    Http1Protocol* self = (Http1Protocol*)context;
     Error err = {ErrorType.NONE, 0};
     self->buffer.len = 0;
 
@@ -86,7 +87,19 @@ static Error read_and_parse_response(Http1Protocol* self, HttpResponse* response
     size_t header_len = 0;
     bool headers_parsed = false;
 
+    response->_owned_buffer = nullptr;
+
     while(1) {
+        if (self->buffer.len == self->buffer.capacity) {
+            size_t new_capacity = self->buffer.capacity == 0 ? 2048 : self->buffer.capacity * 2;
+            char* new_data = self->syscalls->realloc(self->buffer.data, new_capacity);
+            if (!new_data) {
+                return (Error){ErrorType.HTTPC, HttpClientErrorCode.HTTP_PARSE_FAILURE};
+            }
+            self->buffer.data = new_data;
+            self->buffer.capacity = new_capacity;
+        }
+
         ssize_t bytes_read = 0;
         err = self->transport->read(self->transport->context, self->buffer.data + self->buffer.len, self->buffer.capacity - self->buffer.len, &bytes_read);
         if (err.type != ErrorType.NONE && err.code != TransportErrorCode.CONNECTION_CLOSED) {
@@ -114,12 +127,24 @@ static Error read_and_parse_response(Http1Protocol* self, HttpResponse* response
             if (content_length != -1) {
                 size_t total_size = header_len + content_length;
                 if (self->buffer.capacity < total_size + 1) {
+                    char* old_data = self->buffer.data;
                     char* new_data = self->syscalls->realloc(self->buffer.data, total_size + 1);
                     if (!new_data) {
                         return (Error){ErrorType.HTTPC, HttpClientErrorCode.HTTP_PARSE_FAILURE};
                     }
                     self->buffer.data = new_data;
                     self->buffer.capacity = total_size + 1;
+
+                    // Handle the fact that our pointers may have moved for a large enough realloc
+                    // TODO: check this with a te
+                    if (old_data != new_data) {
+                        ptrdiff_t offset = new_data - old_data;
+                        response->status_message += offset;
+                        for (size_t i = 0; i < response->num_headers; ++i) {
+                            response->headers[i].key += offset;
+                            response->headers[i].value += offset;
+                        }
+                    }
                 }
                 if (self->buffer.len >= total_size) {
                     response->body = self->buffer.data + header_len;
@@ -147,6 +172,30 @@ static Error read_and_parse_response(Http1Protocol* self, HttpResponse* response
     return (Error){ErrorType.NONE, 0};
 }
 
+static Error parse_response_safe(void* context, HttpResponse* response) {
+    Http1Protocol* self = (Http1Protocol*)context;
+
+    GrowableBuffer original_buffer = self->buffer;
+
+    self->buffer = (GrowableBuffer){ .data = nullptr, .len = 0, .capacity = 0 };
+
+    Error err = parse_response_unsafe(context, response);
+
+    if (err.type != ErrorType.NONE) {
+        if (self->buffer.capacity)
+        {
+            self->syscalls->free(self->buffer.data);
+        }
+        self->buffer = original_buffer;
+        return err;
+    }
+
+    response->_owned_buffer = self->buffer.data;
+    self->buffer = original_buffer;
+
+    return (Error){ErrorType.NONE, 0};
+}
+
 static Error http1_protocol_perform_request(void* context,
                                             const HttpRequest* request,
                                             HttpResponse* response) {
@@ -164,7 +213,7 @@ static Error http1_protocol_perform_request(void* context,
         return err;
     }
 
-    return read_and_parse_response(self, response);
+    return self->parse_response(self, response);
 }
 
 
@@ -178,14 +227,17 @@ static Error http1_protocol_disconnect(void* context) {
     return self->transport->close(self->transport->context);
 }
 
-HttpProtocolInterface* http1_protocol_new(TransportInterface* transport, const HttpcSyscalls* syscalls_override) {
+HttpProtocolInterface* http1_protocol_new(
+    TransportInterface* transport,
+    const HttpcSyscalls* syscalls_override,
+    HttpResponseMemoryPolicy policy
+) {
     if (!default_syscalls_initialized) {
         httpc_syscalls_init_default(&DEFAULT_SYSCALLS);
         default_syscalls_initialized = 1;
     }
 
-    if (!syscalls_override)
-    {
+    if (!syscalls_override) {
         syscalls_override = &DEFAULT_SYSCALLS;
     }
 
@@ -196,13 +248,20 @@ HttpProtocolInterface* http1_protocol_new(TransportInterface* transport, const H
 
     syscalls_override->memset(self, 0, sizeof(Http1Protocol));
     self->syscalls = syscalls_override;
-
     self->transport = transport;
+    self->policy = policy;
+
     self->interface.context = self;
     self->interface.transport = transport;
     self->interface.connect = http1_protocol_connect;
     self->interface.disconnect = http1_protocol_disconnect;
     self->interface.perform_request = http1_protocol_perform_request;
+
+    if (self->policy == HTTP_RESPONSE_SAFE_OWNING) {
+        self->parse_response = parse_response_safe;
+    } else {
+        self->parse_response = parse_response_unsafe;
+    }
 
     return &self->interface;
 }

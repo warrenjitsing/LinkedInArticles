@@ -5,6 +5,7 @@ add_library(
         tcp_transport.c
         unix_transport.c
         http1_protocol.c
+        http_protocol.c
         httpc.c
 )
 

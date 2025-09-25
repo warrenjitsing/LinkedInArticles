@@ -8,12 +8,14 @@ typedef struct {
     TransportInterface* transport;
     GrowableBuffer buffer;
     const HttpcSyscalls* syscalls;
+    HttpResponseMemoryPolicy policy;
+    Error (*parse_response)(void* context, HttpResponse* response);
 } Http1Protocol;
 
 
 HttpProtocolInterface* http1_protocol_new(
     TransportInterface* transport,
     const HttpcSyscalls* syscalls_override,
-    HttpResponseMemoryPolicy policy // New parameter
+    HttpResponseMemoryPolicy policy
 );
 void http1_protocol_destroy(HttpProtocolInterface* protocol);

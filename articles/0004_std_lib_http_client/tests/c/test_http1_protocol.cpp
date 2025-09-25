@@ -108,7 +108,7 @@ protected:
         mock_transport_interface.read = mock_transport_read;
         mock_transport_interface.close = mock_transport_close;
 
-        protocol = http1_protocol_new(&mock_transport_interface, &mock_syscalls);
+        protocol = http1_protocol_new(&mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
         ASSERT_NE(protocol, nullptr);
         protocol_impl = (Http1Protocol*)protocol;
     }
@@ -144,7 +144,7 @@ TEST(HttpProtocolLifecycle, NewFailsWhenMallocFails) {
 
     mock_syscalls.malloc = mock_malloc_fails;
 
-    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls);
+    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
 
     ASSERT_EQ(protocol, nullptr);
 }
@@ -480,4 +480,75 @@ TEST_F(HttpProtocolTest, PerformRequestSucceedsWhenResponseIsLargerThanInitialBu
     size_t req_len = mock_response_str.length();
     ASSERT_EQ(protocol_impl->buffer.capacity, req_len + 1);
     ASSERT_EQ(protocol_impl->buffer.len, req_len);
+}
+
+TEST_F(HttpProtocolTest, SafeResponseSucceedsAndIsOwning) {
+    HttpProtocolInterface* safe_protocol = http1_protocol_new(
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+    ASSERT_NE(safe_protocol, nullptr);
+    auto* safe_protocol_impl = (Http1Protocol*)safe_protocol;
+
+    std::string large_header_val(1024, 'a');
+    std::string mock_response_str =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "X-Large-Header: " + large_header_val + "\r\n"
+        "Content-Length: 4\r\n"
+        "\r\n"
+        "body";
+    mock_transport_state.read_buffer.assign(
+        mock_response_str.begin(), mock_response_str.end());
+
+    HttpRequest request = {};
+    HttpResponse response = {};
+    Error err = safe_protocol->perform_request(safe_protocol->context, &request, &response);
+
+    ASSERT_EQ(err.type, ErrorType.NONE);
+    ASSERT_EQ(response.status_code, 200);
+    ASSERT_EQ(response.body_len, 4);
+    ASSERT_STREQ(response.body, "body");
+    ASSERT_STREQ(response.headers[1].key, "X-Large-Header");
+
+    ASSERT_NE(response._owned_buffer, nullptr);
+    ASSERT_NE(response.body, safe_protocol_impl->buffer.data);
+
+    http_response_destroy(&response);
+    http1_protocol_destroy(safe_protocol);
+}
+
+TEST_F(HttpProtocolTest, SafeResponseDestroyCleansUp) {
+    HttpProtocolInterface* safe_protocol = http1_protocol_new(
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+    ASSERT_NE(safe_protocol, nullptr);
+
+    const std::string mock_response_str = "HTTP/1.1 204 No Content\r\n\r\n";
+    mock_transport_state.read_buffer.assign(
+        mock_response_str.begin(), mock_response_str.end());
+
+    HttpRequest request = {};
+    HttpResponse response = {};
+    safe_protocol->perform_request(safe_protocol->context, &request, &response);
+
+    ASSERT_NE(response._owned_buffer, nullptr);
+    http_response_destroy(&response);
+    ASSERT_EQ(response._owned_buffer, nullptr);
+
+    http1_protocol_destroy(safe_protocol);
+}
+
+TEST_F(HttpProtocolTest, SafeResponseHandlesReadFailureAndCleansUp) {
+    HttpProtocolInterface* safe_protocol = http1_protocol_new(
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+    ASSERT_NE(safe_protocol, nullptr);
+
+    mock_transport_state.should_fail_read = true;
+
+    HttpRequest request = {};
+    HttpResponse response = {};
+    Error err = safe_protocol->perform_request(safe_protocol->context, &request, &response);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_READ_FAILURE);
+
+    http1_protocol_destroy(safe_protocol);
 }
