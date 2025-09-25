@@ -1,16 +1,19 @@
-#include <gtest/gtest.h>
-#include <httpcpp/http1_protocol.hpp>
-#include <httpcpp/tcp_transport.hpp>
-#include <httpcpp/unix_transport.hpp>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
 #include <thread>
 #include <atomic>
 #include <future>
 #include <functional>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <netinet/in.h>
-#include <unistd.h>
+#include <sstream>
+
+#include <gtest/gtest.h>
+
+#include <httpcpp/http1_protocol.hpp>
+#include <httpcpp/tcp_transport.hpp>
+#include <httpcpp/unix_transport.hpp>
 
 using TransportTypes = ::testing::Types<httpcpp::TcpTransport, httpcpp::UnixTransport>;
 
@@ -230,7 +233,6 @@ TYPED_TEST(Http1ProtocolIntegrationTest, SuccessfullyParsesResponseWithContentLe
         char buffer[1024];
         read(client_fd, buffer, sizeof(buffer));
         write(client_fd, canned_response.c_str(), canned_response.length());
-        shutdown(client_fd, SHUT_WR);
     });
 
     if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
@@ -269,32 +271,27 @@ TYPED_TEST(Http1ProtocolIntegrationTest, SuccessfullyParsesResponseWithContentLe
 
 
 TYPED_TEST(Http1ProtocolIntegrationTest, SuccessfullyReadsBodyOnConnectionClose) {
-    // Arrange: A response with a body but NO Content-Length header.
     const std::string canned_response =
         "HTTP/1.1 200 OK\r\n"
         "Connection: close\r\n"
         "\r\n"
         "Full body.";
 
-    // The server writes the response then immediately closes the connection.
     this->StartServer([&canned_response](int client_fd) {
         char buffer[1024];
         read(client_fd, buffer, sizeof(buffer));
         write(client_fd, canned_response.c_str(), canned_response.length());
     });
 
-    // Connect the client.
     if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
         (void)this->protocol_.connect("127.0.0.1", this->port_);
     } else {
         (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
     }
 
-    // Act: Perform the request.
     httpcpp::HttpRequest req{};
     auto result = this->protocol_.perform_request_unsafe(req);
 
-    // Assert: Check that the response was parsed correctly.
     ASSERT_TRUE(result.has_value());
     const auto& res = *result;
 
@@ -302,7 +299,202 @@ TYPED_TEST(Http1ProtocolIntegrationTest, SuccessfullyReadsBodyOnConnectionClose)
     std::string body_str(reinterpret_cast<const char*>(res.body.data()), res.body.size());
     ASSERT_EQ(body_str, "Full body.");
 
-    // Assert: Crucially, verify that the content_length was never set,
-    // proving the client used the connection closure to end the read loop.
     ASSERT_FALSE(this->protocol_.get_content_length_for_test().has_value());
+}
+
+TYPED_TEST(Http1ProtocolIntegrationTest, CorrectlyParsesComplexStatusLineAndHeaders) {
+    const std::string canned_response =
+        "HTTP/1.1 404 Not Found\r\n"
+        "Connection: close\r\n"
+        "Content-Type: application/json\r\n"
+        "X-Request-ID: abc-123\r\n"
+        "Content-Length: 21\r\n"
+        "\r\n"
+        "{\"error\":\"not found\"}";
+
+    this->StartServer([&canned_response](int client_fd) {
+        char buffer[1024];
+        read(client_fd, buffer, sizeof(buffer));
+        write(client_fd, canned_response.c_str(), canned_response.length());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    });
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
+        (void)this->protocol_.connect("127.0.0.1", this->port_);
+    } else {
+        (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
+    }
+
+    httpcpp::HttpRequest req{};
+    auto result = this->protocol_.perform_request_unsafe(req);
+
+    ASSERT_TRUE(result.has_value());
+    const auto& res = *result;
+
+    ASSERT_EQ(res.status_code, 404);
+    ASSERT_EQ(res.status_message, "Not Found");
+
+    ASSERT_EQ(res.headers.size(), 4);
+    ASSERT_EQ(res.headers[0].first, "Connection");
+    ASSERT_EQ(res.headers[0].second, "close");
+    ASSERT_EQ(res.headers[1].first, "Content-Type");
+    ASSERT_EQ(res.headers[1].second, "application/json");
+    ASSERT_EQ(res.headers[2].first, "X-Request-ID");
+    ASSERT_EQ(res.headers[2].second, "abc-123");
+    ASSERT_EQ(res.headers[3].first, "Content-Length");
+    ASSERT_EQ(res.headers[3].second, "21");
+
+    std::string body_str(reinterpret_cast<const char*>(res.body.data()), res.body.size());
+    ASSERT_EQ(body_str, "{\"error\":\"not found\"}");
+}
+
+
+TYPED_TEST(Http1ProtocolIntegrationTest, HandlesZeroContentLengthResponse) {
+    const std::string canned_response =
+        "HTTP/1.1 204 No Content\r\n"
+        "Connection: close\r\n"
+        "Content-Length: 0\r\n"
+        "\r\n";
+
+    this->StartServer([&canned_response](int client_fd) {
+        char buffer[1024];
+        read(client_fd, buffer, sizeof(buffer));
+        write(client_fd, canned_response.c_str(), canned_response.length());
+    });
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
+        (void)this->protocol_.connect("127.0.0.1", this->port_);
+    } else {
+        (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
+    }
+
+    httpcpp::HttpRequest req{};
+    auto result = this->protocol_.perform_request_unsafe(req);
+
+    ASSERT_TRUE(result.has_value());
+    const auto& res = *result;
+
+    ASSERT_EQ(res.status_code, 204);
+    ASSERT_EQ(res.headers.size(), 2);
+    ASSERT_EQ(res.headers[1].first, "Content-Length");
+    ASSERT_EQ(res.headers[1].second, "0");
+
+    ASSERT_TRUE(res.body.empty());
+}
+
+TYPED_TEST(Http1ProtocolIntegrationTest, HandlesResponseLargerThanInitialBuffer) {
+    const std::string large_body(2000, 'a');
+
+    std::ostringstream oss;
+    oss << "HTTP/1.1 200 OK\r\n"
+        << "Content-Length: " << large_body.size() << "\r\n"
+        << "\r\n"
+        << large_body;
+    const std::string canned_response = oss.str();
+
+    this->StartServer([&canned_response](int client_fd) {
+        char buffer[1024];
+        read(client_fd, buffer, sizeof(buffer));
+
+        const char* response_ptr = canned_response.c_str();
+        size_t bytes_remaining = canned_response.length();
+        while (bytes_remaining > 0) {
+            ssize_t bytes_sent = write(client_fd, response_ptr, bytes_remaining);
+            if (bytes_sent <= 0) {
+                break;
+            }
+            bytes_remaining -= bytes_sent;
+            response_ptr += bytes_sent;
+        }
+    });
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
+        (void)this->protocol_.connect("127.0.0.1", this->port_);
+    } else {
+        (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
+    }
+
+    httpcpp::HttpRequest req{};
+    auto result = this->protocol_.perform_request_unsafe(req);
+
+    ASSERT_TRUE(result.has_value());
+    const auto& res = *result;
+
+    ASSERT_EQ(res.status_code, 200);
+    ASSERT_EQ(res.body.size(), large_body.size());
+
+    std::string body_str(reinterpret_cast<const char*>(res.body.data()), res.body.size());
+    ASSERT_EQ(body_str, large_body);
+}
+
+TYPED_TEST(Http1ProtocolIntegrationTest, FailsGracefullyOnBadContentLength) {
+    const std::string response_body = "short body";
+
+    std::ostringstream oss;
+    oss << "HTTP/1.1 200 OK\r\n"
+        << "Content-Length: 100\r\n" // Lie about the content length
+        << "\r\n"
+        << response_body;
+    const std::string canned_response = oss.str();
+
+    this->StartServer([&canned_response](int client_fd) {
+        char buffer[1024];
+        read(client_fd, buffer, sizeof(buffer));
+        write(client_fd, canned_response.c_str(), canned_response.length());
+    });
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
+        (void)this->protocol_.connect("127.0.0.1", this->port_);
+    } else {
+        (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
+    }
+
+    httpcpp::HttpRequest req{};
+    auto result = this->protocol_.perform_request_unsafe(req);
+
+    ASSERT_FALSE(result.has_value());
+    auto* err_ptr = std::get_if<httpcpp::HttpClientError>(&result.error());
+    ASSERT_NE(err_ptr, nullptr);
+    ASSERT_EQ(*err_ptr, httpcpp::HttpClientError::HttpParseFailure);
+}
+
+TYPED_TEST(Http1ProtocolIntegrationTest, SafeRequestReturnsOwningDeepCopy) {
+    const std::string canned_response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 11\r\n"
+        "\r\n"
+        "Safe Buffer";
+
+    this->StartServer([&canned_response](int client_fd) {
+        char buffer[1024];
+        read(client_fd, buffer, sizeof(buffer));
+        write(client_fd, canned_response.c_str(), canned_response.length());
+    });
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, httpcpp::TcpTransport>) {
+        (void)this->protocol_.connect("127.0.0.1", this->port_);
+    } else {
+        (void)this->protocol_.connect(this->socket_path_.c_str(), 0);
+    }
+
+    httpcpp::HttpRequest req{};
+    auto result = this->protocol_.perform_request_safe(req);
+
+    ASSERT_TRUE(result.has_value());
+    const auto& res = *result;
+
+    ASSERT_EQ(res.status_code, 200);
+    ASSERT_EQ(this->protocol_.get_content_length_for_test(), 11);
+    ASSERT_EQ(res.headers.size(), 1);
+    ASSERT_EQ(res.headers[0].first, "Content-Length");
+    ASSERT_EQ(res.headers[0].second, "11");
+    std::string body_str(reinterpret_cast<const char*>(res.body.data()), res.body.size());
+    ASSERT_EQ(body_str, "Safe Buffer");
+
+    // The critical assertion:
+    // Verify the response body's memory address is DIFFERENT from the protocol's internal buffer.
+    ASSERT_NE(
+        reinterpret_cast<const void*>(res.body.data()),
+        reinterpret_cast<const void*>(this->protocol_.get_internal_buffer_ptr_for_test())
+    );
 }

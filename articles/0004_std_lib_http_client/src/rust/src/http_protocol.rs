@@ -91,11 +91,11 @@ impl<'a> ParsableResponse<'a> for UnsafeHttpResponse<'a> {
 }
 
 pub trait HttpProtocol<T: Transport> {
-    fn perform_request<'a, R>(
-        &mut self,
-        transport: &mut T,
-        request: &HttpRequest<'a>,
-    ) -> Result<R>
-    where
-        R: ParsableResponse<'a>;
+    fn connect(&mut self, host: &str, port: u16) -> Result<()>;
+
+    fn disconnect(&mut self) -> Result<()>;
+
+    fn perform_request_unsafe<'a, 'b>(&'a mut self, request: &'b HttpRequest) -> Result<UnsafeHttpResponse<'a>>;
+
+    fn perform_request_safe<'a>(&mut self, request: &'a HttpRequest) -> Result<SafeHttpResponse>;
 }

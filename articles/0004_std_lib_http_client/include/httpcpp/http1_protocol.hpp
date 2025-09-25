@@ -4,13 +4,12 @@
 #include <httpcpp/http_protocol.hpp>
 
 #include <vector>
-#include <cstddef> // For std::byte
+#include <cstddef>
 #include <iostream>
 #include <string_view>
 #include <algorithm>
 #include <charconv>
 #include <optional>
-#include <cstring>
 
 namespace httpcpp {
 
@@ -83,7 +82,9 @@ namespace httpcpp {
         [[nodiscard]] auto get_content_length_for_test() const noexcept {
             return content_length_;
         }
-
+        [[nodiscard]] auto get_internal_buffer_ptr_for_test() const noexcept {
+            return buffer_.data();
+        }
     private:
         void build_request_string(const HttpRequest& req) {
             buffer_.clear();
@@ -164,7 +165,11 @@ namespace httpcpp {
                             size_t line_end = headers_view.find("\r\n", line_start);
                             std::string_view line = headers_view.substr(line_start, line_end - line_start);
                             if (line.empty()) break;
-                            if (line.size() >= 15 && strncasecmp(line.data(), "Content-Length:", 15) == 0) {
+                            if (line.size() >= 15 &&
+                                std::equal(line.begin(), line.begin() + 15,
+                                    HEADER_SEPARATOR_CL.begin(), HEADER_SEPARATOR_CL.end(),
+                                    [](char a, char b) { return std::tolower(a) == std::tolower(b); })
+                            ) {
                                 auto value_sv = line.substr(15);
                                 value_sv.remove_prefix(std::min(value_sv.find_first_not_of(" \t"), value_sv.size()));
                                 size_t length = 0;
@@ -232,11 +237,9 @@ namespace httpcpp {
                 headers_block.remove_prefix(line_end + 2);
             }
 
-            // 4. Create the body span using the pre-calculated content_length_.
             if (content_length_.has_value()) {
                 res.body = std::span(buffer_).subspan(header_size_, *content_length_);
             } else {
-                // Fallback for connection-close scenarios where content length is unknown.
                 res.body = std::span(buffer_).subspan(header_size_);
             }
 
@@ -244,7 +247,9 @@ namespace httpcpp {
         }
 
         static constexpr std::string_view HEADER_SEPARATOR_ = "\r\n\r\n";
-        size_t header_size_ = 0; // Stores the total size of the response headers
+        static constexpr std::string_view HEADER_SEPARATOR_CL = "Content-Length:";
+
+        size_t header_size_ = 0;
         T transport_;
         std::vector<std::byte> buffer_;
         std::optional<size_t> content_length_;

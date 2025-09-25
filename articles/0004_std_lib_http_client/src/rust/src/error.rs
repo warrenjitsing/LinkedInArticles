@@ -1,3 +1,6 @@
+use std::str::Utf8Error;
+use std::num::ParseIntError;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
@@ -39,5 +42,17 @@ impl From<std::io::Error> for Error {
             _ => TransportError::SocketReadFailure,
         };
         Error::Transport(kind)
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(_: Utf8Error) -> Self {
+        Error::Http(HttpClientError::HttpParseFailure)
+    }
+}
+
+impl From<ParseIntError> for Error {
+    fn from(_: ParseIntError) -> Self {
+        Error::Http(HttpClientError::HttpParseFailure)
     }
 }
