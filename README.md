@@ -3,6 +3,8 @@
 
 # Accelerate First. Accelerate Hard. No Latency.
 
+![banner](banner.jpg)
+
 ---
 ## Overview
 
