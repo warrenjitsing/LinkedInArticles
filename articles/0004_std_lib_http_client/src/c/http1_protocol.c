@@ -70,7 +70,7 @@ static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* req
     if (err.type != ErrorType.NONE) return err;
 
 
-    if (request->body) {
+    if (request->body && request->method == HTTP_POST) {
         err = growable_buffer_append(self, &self->buffer, request->body, self->syscalls->strlen(request->body));
         if (err.type != ErrorType.NONE) return err;
     }

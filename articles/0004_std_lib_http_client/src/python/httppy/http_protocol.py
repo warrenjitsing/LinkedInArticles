@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Protocol, TypeVar, Generic
-
+from typing import Protocol
 
 class HttpMethod(Enum):
     GET = "GET"
@@ -13,7 +12,6 @@ class HttpRequest:
     path: str = "/"
     body: bytes = b""
     headers: list[tuple[str, str]] = field(default_factory=list)
-
 
 @dataclass
 class SafeHttpResponse:
@@ -29,14 +27,20 @@ class UnsafeHttpResponse:
     body: memoryview
     headers: list[tuple[memoryview, memoryview]]
 
-ResponseType = TypeVar("ResponseType", SafeHttpResponse, UnsafeHttpResponse)
+class HttpProtocol(Protocol):
+    def connect(self, host: str, port: int) -> None:
+        ...
 
-class HttpProtocol(Generic[ResponseType], Protocol):
-    def perform_request(self, request: HttpRequest) -> ResponseType:
+    def disconnect(self) -> None:
+        ...
+
+    def perform_request_safe(self, request: HttpRequest) -> SafeHttpResponse:
+        ...
+
+    def perform_request_unsafe(self, request: HttpRequest) -> UnsafeHttpResponse:
         ...
 
 # --- Status Codes ---
-
 class HttpStatusCode(Enum):
     CONTINUE = 100
     OK = 200

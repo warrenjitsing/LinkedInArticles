@@ -115,7 +115,7 @@ namespace httpcpp {
             append("\r\n");
 
             // 4. Body
-            if (!req.body.empty()) {
+            if (!req.body.empty() && req.method == HttpMethod::Post) {
                 buffer_.insert(buffer_.end(), req.body.begin(), req.body.end());
             }
         }

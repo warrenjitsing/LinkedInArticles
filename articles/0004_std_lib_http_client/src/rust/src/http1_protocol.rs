@@ -46,7 +46,7 @@ impl<T: Transport> Http1Protocol<T> {
 
         self.buffer.extend_from_slice(b"\r\n");
 
-        if !request.body.is_empty() {
+        if !request.body.is_empty() && request.method == HttpMethod::Post {
             self.buffer.extend_from_slice(request.body);
         }
     }
