@@ -4,22 +4,11 @@ add_library(
         tcp_transport.cpp
         unix_transport.cpp
         http1_protocol.cpp
+        httpcpp.cpp
 )
 
 target_include_directories(httpcpp_lib
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include
-)
-
-
-add_executable(
-        httpcpp
-        main.cpp
-)
-
-target_link_libraries(
-        httpcpp
-        PRIVATE
-        httpcpp_lib
 )
 

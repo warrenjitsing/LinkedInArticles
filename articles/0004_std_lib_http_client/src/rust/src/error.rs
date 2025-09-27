@@ -19,6 +19,7 @@ pub enum TransportError {
 pub enum HttpClientError {
     UrlParseFailure,
     HttpParseFailure,
+    InvalidRequest,
     InitFailure,
 }
 

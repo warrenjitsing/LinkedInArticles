@@ -35,7 +35,7 @@ target_link_libraries(httpcpp_transport_tests PRIVATE
 gtest_discover_tests(httpcpp_transport_tests)
 
 
-# --- C++ Protocol Tests (NEW) ---
+# --- C++ Protocol Tests ---
 add_executable(httpcpp_protocol_tests
         test_main.cpp
         cpp/test_http1_protocol.cpp
@@ -47,3 +47,17 @@ target_link_libraries(httpcpp_protocol_tests PRIVATE
         GTest::gtest_main
 )
 gtest_discover_tests(httpcpp_protocol_tests)
+
+# --- C++ Client Tests ---
+
+add_executable(httpcpp_client_tests
+        test_main.cpp
+        cpp/test_httpcpp.cpp
+)
+
+target_link_libraries(httpcpp_client_tests PRIVATE
+        httpcpp_lib
+        GTest::gmock
+        GTest::gtest_main
+)
+gtest_discover_tests(httpcpp_client_tests)

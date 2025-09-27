@@ -20,6 +20,7 @@ namespace httpcpp {
         None,
         UrlParseFailure,
         HttpParseFailure,
+        InvalidRequest,
         InitFailure,
     };
 

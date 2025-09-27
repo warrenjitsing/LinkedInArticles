@@ -25,4 +25,5 @@ class HttpClientError(HttpcError):
 
 class UrlParseError(HttpClientError): pass
 class HttpParseError(HttpClientError): pass
+class InvalidRequestError(HttpClientError): pass
 class HttpClientInitError(HttpClientError): pass

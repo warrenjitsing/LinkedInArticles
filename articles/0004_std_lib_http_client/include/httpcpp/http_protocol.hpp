@@ -41,9 +41,6 @@ namespace httpcpp {
 
     template<typename T>
     concept HttpProtocol = requires(T proto, const HttpRequest& req, const char* host, uint16_t port) {
-        typename T::transport_type;
-
-        requires Transport<typename T::transport_type>;
 
         { proto.connect(host, port) } noexcept -> std::same_as<std::expected<void, Error>>;
         { proto.disconnect() } noexcept -> std::same_as<std::expected<void, Error>>;

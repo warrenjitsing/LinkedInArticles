@@ -41,10 +41,12 @@ static const struct {
     const int NONE;
     const int URL_PARSE_FAILURE;
     const int HTTP_PARSE_FAILURE;
+    const int INVALID_REQUEST_SYNTAX;
     const int INIT_FAILURE;
 } HttpClientErrorCode = {
     .NONE = 0,
     .URL_PARSE_FAILURE = 1,
     .HTTP_PARSE_FAILURE = 2,
-    .INIT_FAILURE = 3,
+    .INVALID_REQUEST_SYNTAX = 3,
+    .INIT_FAILURE = 4,
 };

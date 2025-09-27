@@ -14,6 +14,8 @@ static Error http_client_disconnect(struct HttpClient* self) {
     return self->protocol->disconnect(self->protocol->context);
 }
 
+// TODO: needs to accept HttpRequest struct
+
 static Error http_client_get(struct HttpClient* self,
                              const char* path,
                              HttpResponse* response) {
