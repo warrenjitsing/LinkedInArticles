@@ -10,4 +10,3 @@ typedef struct {
 } TcpClient;
 
 TransportInterface* tcp_transport_new(const HttpcSyscalls* syscalls_override);
-void tcp_transport_destroy(TransportInterface* transport);

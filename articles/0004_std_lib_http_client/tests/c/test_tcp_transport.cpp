@@ -8,6 +8,7 @@
 #include <netinet/tcp.h>
 #include <csignal>
 #include <cerrno>
+#include <httpc/httpc.h>
 
 extern "C" {
 #include <httpc/tcp_transport.h>
@@ -38,7 +39,7 @@ protected:
 
     void TearDown() override {
         stop_listener();
-        tcp_transport_destroy(transport);
+        transport->destroy(transport->context);
     }
 
     void start_listener() {
@@ -81,7 +82,7 @@ protected:
     }
 
     void ReinitializeWithMocks() {
-        tcp_transport_destroy(transport);
+        transport->destroy(transport->context);
         transport = tcp_transport_new(&mock_syscalls);
         ASSERT_NE(transport, nullptr);
         client = (TcpClient*)transport;
@@ -108,11 +109,14 @@ TEST(TcpTransportLifecycle, NewSucceedsWithOverrideSyscalls) {
     TcpClient* client = (TcpClient*)transport;
     ASSERT_EQ(client->syscalls, &mock_syscalls);
 
-    tcp_transport_destroy(transport);
+    transport->destroy(transport->context);
 }
 
 TEST(TcpTransportLifecycle, DestroyHandlesNullGracefully) {
-    tcp_transport_destroy(nullptr);
+    TransportInterface* transport = tcp_transport_new(nullptr);
+    TcpClient* client = (TcpClient*)transport;
+    transport->destroy(nullptr);
+    transport->destroy(transport->context);
     SUCCEED();
 }
 

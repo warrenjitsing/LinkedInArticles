@@ -37,7 +37,7 @@ protected:
 
     void TearDown() override {
         stop_listener();
-        unix_transport_destroy(transport);
+        transport->destroy(transport->context);
     }
 
     void start_listener() {
@@ -77,7 +77,7 @@ protected:
     }
 
     void ReinitializeWithMocks() {
-        unix_transport_destroy(transport);
+        transport->destroy(transport->context);
         transport = unix_transport_new(&mock_syscalls);
         ASSERT_NE(transport, nullptr);
         client = (UnixClient*)transport;
@@ -100,11 +100,13 @@ TEST(UnixTransportLifecycle, NewSucceedsWithOverrideSyscalls) {
     ASSERT_NE(transport, nullptr);
     UnixClient* client = (UnixClient*)transport;
     ASSERT_EQ(client->syscalls, &mock_syscalls);
-    unix_transport_destroy(transport);
+    transport->destroy(transport->context);
 }
 
 TEST(UnixTransportLifecycle, DestroyHandlesNullGracefully) {
-    unix_transport_destroy(nullptr);
+    TransportInterface* transport = unix_transport_new(nullptr);
+    transport->destroy(nullptr);
+    transport->destroy(transport->context);
     SUCCEED();
 }
 

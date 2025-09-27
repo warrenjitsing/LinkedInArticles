@@ -94,6 +94,14 @@ static Error tcp_transport_close(void* context) {
     return (Error){ErrorType.NONE, 0};
 }
 
+void tcp_transport_destroy(void* context) {
+    if (!context) {
+        return;
+    }
+    TcpClient* self = (TcpClient*)context;
+    self->syscalls->free(self);
+}
+
 TransportInterface* tcp_transport_new(const HttpcSyscalls* syscalls_override) {
     if (!default_syscalls_initialized) {
         httpc_syscalls_init_default(&DEFAULT_SYSCALLS);
@@ -117,15 +125,9 @@ TransportInterface* tcp_transport_new(const HttpcSyscalls* syscalls_override) {
     self->interface.write = tcp_transport_write;
     self->interface.read = tcp_transport_read;
     self->interface.close = tcp_transport_close;
+    self->interface.destroy = tcp_transport_destroy;
 
     return &self->interface;
 }
 
-void tcp_transport_destroy(TransportInterface* transport) {
-    if (!transport) {
-        return;
-    }
-    // C guarantees the address of the struct is the same as its first member.
-    TcpClient* self = (TcpClient*)transport;
-    self->syscalls->free(self);
-}
+

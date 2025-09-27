@@ -55,11 +55,7 @@ Error http_client_init(struct HttpClient* self, int transport_type, int protocol
 
     if (!protocol) {
         // Cleanup the transport if protocol creation failed
-        if (transport_type == HttpTransportType.TCP) {
-            tcp_transport_destroy(transport);
-        } else if (transport_type == HttpTransportType.UNIX) {
-            unix_transport_destroy(transport);
-        }
+        transport->destroy(transport->context);
         return (Error){ErrorType.HTTPC, HttpClientErrorCode.INIT_FAILURE};
     }
 
@@ -71,14 +67,8 @@ void http_client_destroy(struct HttpClient* self) {
         return;
     }
 
-    // This part makes an assumption about the transport type based on the protocol,
-    // which is necessary given the current API design.
-    // A more robust design might store the transport type or a generic destructor.
     TransportInterface* transport = self->protocol->transport;
 
     http1_protocol_destroy(self->protocol);
-
-    // For now, we assume we can identify the transport to destroy it.
-    // This is a simplification.
-    tcp_transport_destroy(transport);
+    transport->destroy(transport->context);
 }

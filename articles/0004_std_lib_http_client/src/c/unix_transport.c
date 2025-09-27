@@ -61,6 +61,14 @@ static Error unix_transport_close(void* context) {
     return (Error){ErrorType.NONE, 0};
 }
 
+void unix_transport_destroy(void* context) {
+    if (!context) {
+        return;
+    }
+    UnixClient* self = (UnixClient*)context;
+    self->syscalls->free(self);
+}
+
 TransportInterface* unix_transport_new(const HttpcSyscalls* syscalls_override) {
     if (!default_syscalls_initialized) {
         httpc_syscalls_init_default(&DEFAULT_SYSCALLS);
@@ -84,14 +92,8 @@ TransportInterface* unix_transport_new(const HttpcSyscalls* syscalls_override) {
     self->interface.write = unix_transport_write;
     self->interface.read = unix_transport_read;
     self->interface.close = unix_transport_close;
+    self->interface.destroy = unix_transport_destroy;
 
     return &self->interface;
 }
 
-void unix_transport_destroy(TransportInterface* transport) {
-    if (!transport) {
-        return;
-    }
-    UnixClient* self = (UnixClient*)transport;
-    self->syscalls->free(self);
-}
