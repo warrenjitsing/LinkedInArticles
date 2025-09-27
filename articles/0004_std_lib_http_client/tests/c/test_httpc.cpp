@@ -125,7 +125,7 @@ TEST_F(HttpClientIntegrationTest, TcpClientGetRequestSucceeds) {
     Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
-    err = client.protocol->connect(client.protocol->context, "127.0.0.1", tcp_port);
+    err = client.connect(&client, "127.0.0.1", tcp_port);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpResponse response = {};
@@ -148,7 +148,7 @@ TEST_F(HttpClientIntegrationTest, TcpClientPostRequestSucceeds) {
     Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
-    err = client.protocol->connect(client.protocol->context, "127.0.0.1", tcp_port);
+    err = client.connect(&client, "127.0.0.1", tcp_port);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpResponse response = {};
@@ -172,7 +172,7 @@ TEST_F(HttpClientIntegrationTest, UnixClientGetRequestSucceeds) {
     Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
-    err = client.protocol->connect(client.protocol->context, unix_socket_path.c_str(), 0);
+    err = client.connect(&client, unix_socket_path.c_str(), 0);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpResponse response = {};
@@ -195,7 +195,7 @@ TEST_F(HttpClientIntegrationTest, UnixClientPostRequestSucceeds) {
     Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
-    err = client.protocol->connect(client.protocol->context, unix_socket_path.c_str(), 0);
+    err = client.connect(&client, unix_socket_path.c_str(), 0);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpResponse response = {};

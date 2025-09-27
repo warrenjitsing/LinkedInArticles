@@ -18,4 +18,3 @@ HttpProtocolInterface* http1_protocol_new(
     const HttpcSyscalls* syscalls_override,
     HttpResponseMemoryPolicy policy
 );
-void http1_protocol_destroy(HttpProtocolInterface* protocol);

@@ -227,6 +227,18 @@ static Error http1_protocol_disconnect(void* context) {
     return self->transport->close(self->transport->context);
 }
 
+static void http1_protocol_destroy(void* context) {
+    if (!context) {
+        return;
+    }
+    Http1Protocol* self = (Http1Protocol*)context;
+    if(self->buffer.capacity > 0) {
+        self->syscalls->free(self->buffer.data);
+    }
+    self->syscalls->free(self);
+}
+
+
 HttpProtocolInterface* http1_protocol_new(
     TransportInterface* transport,
     const HttpcSyscalls* syscalls_override,
@@ -256,6 +268,7 @@ HttpProtocolInterface* http1_protocol_new(
     self->interface.connect = http1_protocol_connect;
     self->interface.disconnect = http1_protocol_disconnect;
     self->interface.perform_request = http1_protocol_perform_request;
+    self->interface.destroy = http1_protocol_destroy;
 
     if (self->policy == HTTP_RESPONSE_SAFE_OWNING) {
         self->parse_response = parse_response_safe;
@@ -264,12 +277,4 @@ HttpProtocolInterface* http1_protocol_new(
     }
 
     return &self->interface;
-}
-
-void http1_protocol_destroy(HttpProtocolInterface* protocol) {
-    if (!protocol) {
-        return;
-    }
-    Http1Protocol* self = (Http1Protocol*)protocol;
-    self->syscalls->free(self);
 }

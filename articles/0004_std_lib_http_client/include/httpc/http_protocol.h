@@ -45,6 +45,7 @@ typedef struct {
     Error (*perform_request)(void* context,
                              const HttpRequest* request,
                              HttpResponse* response);
+    void (*destroy)(void* context);
 } HttpProtocolInterface;
 
 static const struct {

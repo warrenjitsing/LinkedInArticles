@@ -20,7 +20,9 @@ static const struct {
 
 struct HttpClient {
     HttpProtocolInterface* protocol;
-    Error (*get)(struct HttpClient* self,
+    Error (*connect)(struct HttpClient* self, const char* host, int port);
+    Error (*disconnect)(struct HttpClient* self);
+     Error (*get)(struct HttpClient* self,
                  const char* path,
                  HttpResponse* response);
     Error (*post)(struct HttpClient* self,

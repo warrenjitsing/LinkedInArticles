@@ -114,7 +114,7 @@ protected:
     }
 
     void TearDown() override {
-        http1_protocol_destroy(protocol);
+        protocol->destroy(protocol->context);
     }
 };
 
@@ -128,7 +128,10 @@ TEST_F(HttpProtocolTest, NewSucceedsAndInitializesInterface) {
 }
 
 TEST(HttpProtocolLifecycle, DestroyHandlesNullGracefully) {
-    http1_protocol_destroy(nullptr);
+    HttpcSyscalls mock_syscalls;
+    httpc_syscalls_init_default(&mock_syscalls);
+    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    protocol->destroy(protocol->context);
     SUCCEED();
 }
 
@@ -513,7 +516,7 @@ TEST_F(HttpProtocolTest, SafeResponseSucceedsAndIsOwning) {
     ASSERT_NE(response.body, safe_protocol_impl->buffer.data);
 
     http_response_destroy(&response);
-    http1_protocol_destroy(safe_protocol);
+    safe_protocol->destroy(safe_protocol->context);
 }
 
 TEST_F(HttpProtocolTest, SafeResponseDestroyCleansUp) {
@@ -533,7 +536,7 @@ TEST_F(HttpProtocolTest, SafeResponseDestroyCleansUp) {
     http_response_destroy(&response);
     ASSERT_EQ(response._owned_buffer, nullptr);
 
-    http1_protocol_destroy(safe_protocol);
+    safe_protocol->destroy(safe_protocol->context);
 }
 
 TEST_F(HttpProtocolTest, SafeResponseHandlesReadFailureAndCleansUp) {
@@ -550,5 +553,5 @@ TEST_F(HttpProtocolTest, SafeResponseHandlesReadFailureAndCleansUp) {
     ASSERT_EQ(err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(err.code, TransportErrorCode.SOCKET_READ_FAILURE);
 
-    http1_protocol_destroy(safe_protocol);
+    safe_protocol->destroy(safe_protocol->context);
 }
