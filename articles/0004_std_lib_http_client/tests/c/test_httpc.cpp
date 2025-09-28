@@ -234,3 +234,101 @@ TEST_F(HttpClientIntegrationTest, UnixClientPostRequestSucceeds) {
 
     http_client_destroy(&client);
 }
+
+TEST_F(HttpClientIntegrationTest, ClientMethodsReturnErrorOnNullptrArgs) {
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    HttpRequest request = {};
+    request.path = "/";
+    request.body = "body";
+    char content_len_str[2];
+    snprintf(content_len_str, sizeof(content_len_str), "4");
+    request.headers[0] = {"Content-Length", content_len_str};
+    request.num_headers = 1;
+
+    HttpResponse response = {};
+
+    err = client.get(nullptr, &request, &response);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    err = client.get(&client, nullptr, &response);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    err = client.get(&client, &request, nullptr);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    HttpRequest bad_req_path = {};
+    bad_req_path.path = nullptr;
+    err = client.get(&client, &bad_req_path, &response);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    err = client.post(&client, nullptr, &response);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    HttpRequest bad_req_body = {};
+    bad_req_body.path = "/";
+    bad_req_body.body = nullptr;
+    err = client.post(&client, &bad_req_body, &response);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    http_client_destroy(&client);
+}
+
+TEST_F(HttpClientIntegrationTest, GetRequestWithBodyReturnsError) {
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    HttpRequest request = {};
+    request.path = "/test";
+    request.body = "this body is not allowed";
+
+    HttpResponse response = {};
+    err = client.get(&client, &request, &response);
+
+    ASSERT_EQ(err.type, ErrorType.HTTPC);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    http_client_destroy(&client);
+}
+
+TEST_F(HttpClientIntegrationTest, PostRequestWithoutBodyReturnsError) {
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    HttpRequest request = {};
+    request.path = "/test";
+    request.body = nullptr;
+    request.headers[0] = {"Content-Length", "0"};
+    request.num_headers = 1;
+
+    HttpResponse response = {};
+    err = client.post(&client, &request, &response);
+
+    ASSERT_EQ(err.type, ErrorType.HTTPC);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    http_client_destroy(&client);
+}
+
+TEST_F(HttpClientIntegrationTest, PostRequestWithoutContentLengthReturnsError) {
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    HttpRequest request = {};
+    request.path = "/test";
+    request.body = "some body";
+    request.num_headers = 0;
+
+    HttpResponse response = {};
+    err = client.post(&client, &request, &response);
+
+    ASSERT_EQ(err.type, ErrorType.HTTPC);
+    ASSERT_EQ(err.code, HttpClientErrorCode.INVALID_REQUEST_SYNTAX);
+
+    http_client_destroy(&client);
+}
