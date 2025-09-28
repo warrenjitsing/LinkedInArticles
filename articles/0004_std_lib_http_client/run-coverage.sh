@@ -40,7 +40,7 @@
 (
     . .venv/bin/activate
     cd src/python
-    python3 -m pip install --editable . &> /dev/null
+    python3 -m pip install --editable .[test] &> /dev/null
     pytest -sv --cov=httppy --cov-report=html tests
     echo "✅ Coverage HTML report generated in src/python/htmlcov/index.html"
 )

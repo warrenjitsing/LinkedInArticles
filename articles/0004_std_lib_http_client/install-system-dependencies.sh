@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-sudo apt-get update && sudo apt-get install llvm lcov
+sudo apt-get update && sudo apt-get install -y llvm lcov hyperfine libcurl4-openssl-dev libboost-dev
 cargo install cargo-llvm-cov
