@@ -19,6 +19,7 @@ class SafeHttpResponse:
     status_message: str
     body: bytes
     headers: list[tuple[str, str]]
+    content_length: int | None = None
 
 @dataclass
 class UnsafeHttpResponse:
@@ -26,6 +27,7 @@ class UnsafeHttpResponse:
     status_message: memoryview
     body: memoryview
     headers: list[tuple[memoryview, memoryview]]
+    content_length: int | None = None
 
 class HttpProtocol(Protocol):
     def connect(self, host: str, port: int) -> None:
@@ -40,7 +42,6 @@ class HttpProtocol(Protocol):
     def perform_request_unsafe(self, request: HttpRequest) -> UnsafeHttpResponse:
         ...
 
-# --- Status Codes ---
 class HttpStatusCode(Enum):
     CONTINUE = 100
     OK = 200

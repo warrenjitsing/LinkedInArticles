@@ -33,6 +33,7 @@ pub struct SafeHttpResponse {
     pub status_message: String,
     pub body: Vec<u8>,
     pub headers: Vec<HttpOwnedHeader>,
+    pub content_length: Option<usize>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,6 +42,7 @@ pub struct UnsafeHttpResponse<'a> {
     pub status_message: &'a str,
     pub body: &'a [u8],
     pub headers: Vec<HttpHeaderView<'a>>,
+    pub content_length: Option<usize>,
 }
 
 pub trait ParsableResponse<'a>: Sized {
@@ -49,6 +51,7 @@ pub trait ParsableResponse<'a>: Sized {
         status_message: &'a str,
         headers: Vec<HttpHeaderView<'a>>,
         body: &'a [u8],
+        content_length: Option<usize>,
     ) -> Result<Self>;
 }
 
@@ -58,6 +61,7 @@ impl<'a> ParsableResponse<'a> for SafeHttpResponse {
         status_message: &'a str,
         headers: Vec<HttpHeaderView<'a>>,
         body: &'a [u8],
+        content_length: Option<usize>,
     ) -> Result<Self> {
         Ok(SafeHttpResponse {
             status_code,
@@ -70,6 +74,7 @@ impl<'a> ParsableResponse<'a> for SafeHttpResponse {
                 })
                 .collect(),
             body: body.to_vec(),
+            content_length,
         })
     }
 }
@@ -80,19 +85,21 @@ impl<'a> ParsableResponse<'a> for UnsafeHttpResponse<'a> {
         status_message: &'a str,
         headers: Vec<HttpHeaderView<'a>>,
         body: &'a [u8],
+        content_length: Option<usize>,
     ) -> Result<Self> {
         Ok(UnsafeHttpResponse {
             status_code,
             status_message,
             headers,
             body,
+            content_length,
         })
     }
 }
 
 pub trait HttpProtocol {
     type Transport: Transport;
-    
+
     fn connect(&mut self, host: &str, port: u16) -> Result<()>;
 
     fn disconnect(&mut self) -> Result<()>;

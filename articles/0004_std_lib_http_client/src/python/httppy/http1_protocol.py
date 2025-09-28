@@ -34,7 +34,8 @@ class Http1Protocol(HttpProtocol):
             status_code=unsafe_res.status_code,
             status_message=status_message,
             body=body,
-            headers=headers
+            headers=headers,
+            content_length=unsafe_res.content_length,
         )
 
     def perform_request_unsafe(self, request: HttpRequest) -> UnsafeHttpResponse:
@@ -169,5 +170,6 @@ class Http1Protocol(HttpProtocol):
             status_code=status_code,
             status_message=status_message,
             headers=headers,
-            body=body
+            body=body,
+            content_length=self._content_length,
         )

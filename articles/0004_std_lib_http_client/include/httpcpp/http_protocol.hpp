@@ -7,6 +7,7 @@
 #include <string_view>
 #include <utility>
 #include <span>
+#include <optional>
 
 namespace httpcpp {
 
@@ -30,6 +31,7 @@ namespace httpcpp {
         std::string_view status_message;
         std::span<const std::byte> body;
         std::vector<HttpHeaderView> headers;
+        std::optional<size_t> content_length = std::nullopt;
     };
 
     struct SafeHttpResponse {
@@ -37,6 +39,7 @@ namespace httpcpp {
         std::string status_message;
         std::vector<std::byte> body;
         std::vector<HttpOwnedHeader> headers;
+        std::optional<size_t> content_length = std::nullopt;
     };
 
     template<typename T>

@@ -32,6 +32,7 @@ typedef struct {
     size_t body_len;
     HttpHeader headers[32];
     size_t num_headers;
+    size_t content_length;
     void* _owned_buffer;
 } HttpResponse;
 

@@ -178,6 +178,7 @@ impl<T: Transport> Http1Protocol<T> {
             status_message,
             headers,
             body,
+            content_length: self.content_length,
         })
     }
 
@@ -226,6 +227,7 @@ impl<T: Transport> HttpProtocol for Http1Protocol<T> {
             status_message: unsafe_res.status_message.to_string(),
             body: unsafe_res.body.to_vec(),
             headers,
+            content_length: unsafe_res.content_length,
         })
     }
 }

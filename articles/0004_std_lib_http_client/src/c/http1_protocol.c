@@ -117,6 +117,7 @@ static Error parse_response_unsafe(void* context, HttpResponse* response) {
                 for (size_t i = 0; i < response->num_headers; ++i) {
                     if (self->syscalls->strcasecmp(response->headers[i].key, "Content-Length") == 0) {
                         content_length = self->syscalls->atoi(response->headers[i].value);
+                        response->content_length = content_length;
                         break;
                     }
                 }
@@ -202,6 +203,7 @@ static Error http1_protocol_perform_request(void* context,
     Http1Protocol* self = (Http1Protocol*)context;
     Error err = {ErrorType.NONE, 0};
     ssize_t bytes_written = 0;
+    response->content_length = 0;
 
     err = build_request_in_buffer(self, request);
     if (err.type != ErrorType.NONE) {

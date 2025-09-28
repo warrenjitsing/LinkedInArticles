@@ -52,7 +52,7 @@ namespace httpcpp {
             safe_res.status_code = unsafe_res.status_code;
             safe_res.status_message = std::string(unsafe_res.status_message);
             safe_res.body = std::vector<std::byte>(unsafe_res.body.begin(), unsafe_res.body.end());
-
+            safe_res.content_length = unsafe_res.content_length;
             safe_res.headers.reserve(unsafe_res.headers.size());
             for (const auto& header_view : unsafe_res.headers) {
                 safe_res.headers.emplace_back(
@@ -239,6 +239,7 @@ namespace httpcpp {
 
             if (content_length_.has_value()) {
                 res.body = std::span(buffer_).subspan(header_size_, *content_length_);
+                res.content_length = *content_length_;
             } else {
                 res.body = std::span(buffer_).subspan(header_size_);
             }
