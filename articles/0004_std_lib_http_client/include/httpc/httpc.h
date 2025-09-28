@@ -22,12 +22,11 @@ struct HttpClient {
     HttpProtocolInterface* protocol;
     Error (*connect)(struct HttpClient* self, const char* host, int port);
     Error (*disconnect)(struct HttpClient* self);
-     Error (*get)(struct HttpClient* self,
-                 const char* path,
+    Error (*get)(struct HttpClient* self,
+                 HttpRequest* request,
                  HttpResponse* response);
     Error (*post)(struct HttpClient* self,
-                  const char* path,
-                  const char* body,
+                  HttpRequest* request,
                   HttpResponse* response);
 };
 

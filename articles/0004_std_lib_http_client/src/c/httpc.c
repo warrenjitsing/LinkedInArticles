@@ -14,28 +14,45 @@ static Error http_client_disconnect(struct HttpClient* self) {
     return self->protocol->disconnect(self->protocol->context);
 }
 
-// TODO: needs to accept HttpRequest struct
-
 static Error http_client_get(struct HttpClient* self,
-                             const char* path,
+                             HttpRequest* request,
                              HttpResponse* response) {
-    HttpRequest request = {};
-    request.method = HTTP_GET;
-    request.path = path;
+    if (self == nullptr || request == nullptr || response == nullptr || request->path == nullptr) {
+        return (Error){ErrorType.HTTPC, HttpClientErrorCode.INVALID_REQUEST_SYNTAX};
+    }
 
-    return self->protocol->perform_request(self->protocol->context, &request, response);
+    if (request->body != nullptr) {
+        return (Error){ErrorType.HTTPC, HttpClientErrorCode.INVALID_REQUEST_SYNTAX};
+    }
+
+    request->method = HTTP_GET;
+
+    return self->protocol->perform_request(self->protocol->context, request, response);
 }
 
 static Error http_client_post(struct HttpClient* self,
-                              const char* path,
-                              const char* body,
+                              HttpRequest* request,
                               HttpResponse* response) {
-    HttpRequest request = {};
-    request.method = HTTP_POST;
-    request.path = path;
-    request.body = body;
+    if (self == nullptr || request == nullptr || response == nullptr || request->path == nullptr || request->body == nullptr) {
+        return (Error){ErrorType.HTTPC, HttpClientErrorCode.INVALID_REQUEST_SYNTAX};
+    }
 
-    return self->protocol->perform_request(self->protocol->context, &request, response);
+    int content_length_found = 0;
+    for (size_t i = 0; i < request->num_headers; ++i) {
+        // TODO: dependency injection for strcasecmp
+        if (request->headers[i].key != nullptr && strcasecmp(request->headers[i].key, "Content-Length") == 0) {
+            content_length_found = 1;
+            break;
+        }
+    }
+
+    if (!content_length_found) {
+        return (Error){ErrorType.HTTPC, HttpClientErrorCode.INVALID_REQUEST_SYNTAX};
+    }
+
+    request->method = HTTP_POST;
+
+    return self->protocol->perform_request(self->protocol->context, request, response);
 }
 
 Error http_client_init_with_protocol(struct HttpClient* self, HttpProtocolInterface* protocol, HttpResponseMemoryPolicy policy) {

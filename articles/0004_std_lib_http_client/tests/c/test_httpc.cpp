@@ -128,8 +128,10 @@ TEST_F(HttpClientIntegrationTest, TcpClientGetRequestSucceeds) {
     err = client.connect(&client, "127.0.0.1", tcp_port);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
+    HttpRequest request = {};
+    request.path = "/test_path";
     HttpResponse response = {};
-    err = client.get(&client, "/test_path", &response);
+    err = client.get(&client, &request, &response);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     ASSERT_EQ(response.status_code, 200);
@@ -151,8 +153,18 @@ TEST_F(HttpClientIntegrationTest, TcpClientPostRequestSucceeds) {
     err = client.connect(&client, "127.0.0.1", tcp_port);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
+
+    const char* body_str = "data=value";
+    char content_len_str[4];
+    snprintf(content_len_str, sizeof(content_len_str), "%zu", strlen(body_str));
+
+    HttpRequest request = {};
+    request.path = "/submit";
+    request.body = body_str;
+    request.headers[0] = {"Content-Length", content_len_str};
+    request.num_headers = 1;
     HttpResponse response = {};
-    err = client.post(&client, "/submit", "data=value", &response);
+    err = client.post(&client, &request, &response);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     ASSERT_EQ(response.status_code, 200);
@@ -175,8 +187,10 @@ TEST_F(HttpClientIntegrationTest, UnixClientGetRequestSucceeds) {
     err = client.connect(&client, unix_socket_path.c_str(), 0);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
+    HttpRequest request = {};
+    request.path = "/local_path";
     HttpResponse response = {};
-    err = client.get(&client, "/local_path", &response);
+    err = client.get(&client, &request, &response);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     ASSERT_EQ(response.status_code, 200);
@@ -198,8 +212,17 @@ TEST_F(HttpClientIntegrationTest, UnixClientPostRequestSucceeds) {
     err = client.connect(&client, unix_socket_path.c_str(), 0);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
+    const char* body_str = "payload";
+    char content_len_str[4];
+    snprintf(content_len_str, sizeof(content_len_str), "%zu", strlen(body_str));
+
+    HttpRequest request = {};
+    request.path = "/submit_local";
+    request.body = body_str;
+    request.headers[0] = {"Content-Length", content_len_str};
+    request.num_headers = 1;
     HttpResponse response = {};
-    err = client.post(&client, "/submit_local", "payload", &response);
+    err = client.post(&client, &request, &response);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     ASSERT_EQ(response.status_code, 200);
