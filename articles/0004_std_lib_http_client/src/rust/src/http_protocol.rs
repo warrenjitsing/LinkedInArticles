@@ -90,7 +90,9 @@ impl<'a> ParsableResponse<'a> for UnsafeHttpResponse<'a> {
     }
 }
 
-pub trait HttpProtocol<T: Transport> {
+pub trait HttpProtocol {
+    type Transport: Transport;
+    
     fn connect(&mut self, host: &str, port: u16) -> Result<()>;
 
     fn disconnect(&mut self) -> Result<()>;

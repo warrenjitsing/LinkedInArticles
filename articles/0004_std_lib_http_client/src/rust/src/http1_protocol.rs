@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::cmp::max;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::default::Default;
 
 use crate::error::{Error, HttpClientError, Result, TransportError};
 use crate::http_protocol::{HttpHeaderView, HttpOwnedHeader, HttpMethod, HttpProtocol, HttpRequest, SafeHttpResponse, UnsafeHttpResponse};
@@ -13,6 +14,17 @@ pub struct Http1Protocol<T: Transport> {
     buffer: Vec<u8>,
     header_size: usize,
     content_length: Option<usize>,
+}
+
+impl<T: Transport + Default> Default for Http1Protocol<T> {
+    fn default() -> Self {
+        Self {
+            transport: T::default(),
+            buffer: Vec::new(), // or Vec::default()
+            header_size: 0,
+            content_length: None,
+        }
+    }
 }
 
 impl<T: Transport> Http1Protocol<T> {
@@ -181,8 +193,8 @@ impl<T: Transport> Http1Protocol<T> {
 
 }
 
-impl<T: Transport> HttpProtocol<T> for Http1Protocol<T> {
-
+impl<T: Transport> HttpProtocol for Http1Protocol<T> {
+    type Transport = T;
     fn connect(&mut self, host: &str, port: u16) -> Result<()> {
         self.transport.connect(host, port)
     }

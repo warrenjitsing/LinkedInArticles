@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::net::Shutdown;
 
+#[derive(Default)]
 pub struct UnixTransport {
     stream: Option<UnixStream>,
 }

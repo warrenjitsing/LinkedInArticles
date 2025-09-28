@@ -5,6 +5,7 @@ use std::net::{Shutdown, TcpStream};
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
+#[derive(Default)]
 pub struct TcpTransport {
     stream: Option<TcpStream>,
 }
