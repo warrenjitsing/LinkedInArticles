@@ -4,3 +4,4 @@ build_release
 .venv
 Cargo.lock
 *pycache*
+src/python/build/
