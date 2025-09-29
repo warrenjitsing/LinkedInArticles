@@ -17,6 +17,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_link_options(-fprofile-arcs -ftest-coverage)
 endif()
 
+# Enable LTO globally if supported by the compiler and not in Debug
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
 
 include(FetchContent)
 
@@ -47,13 +50,13 @@ add_subdirectory(tests)
 
 corrosion_import_crate(MANIFEST_PATH src/rust/Cargo.toml)
 
-#add_custom_target(python_wheel
-#    COMMAND ${Python_EXECUTABLE} -m build --wheel
-#            --outdir ${CMAKE_BINARY_DIR}/wheelhouse
-#            ${CMAKE_SOURCE_DIR}/src/python
-#    COMMENT "Building Python wheel..."
-#    VERBATIM
-#)
-#
-#add_dependencies(httpc python_wheel)
-#add_dependencies(httpcpp python_wheel)
+add_custom_target(python_wheel
+    COMMAND ${Python_EXECUTABLE} -m build --wheel
+            --outdir ${CMAKE_BINARY_DIR}/wheelhouse
+            ${CMAKE_SOURCE_DIR}/src/python
+    COMMENT "Building Python wheel..."
+    VERBATIM
+)
+
+add_dependencies(httpc_lib python_wheel)
+add_dependencies(httpcpp_lib python_wheel)
