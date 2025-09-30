@@ -10,3 +10,11 @@ path = "src/lib.rs"
 [dependencies]
 libc = "1.0.0-alpha.1"
 reqwest = { version = "0.12.23", features = ["blocking"]}
+
+[[bin]]
+name = "httprust_client"
+path = "src/bin/httprust_client.rs"
+
+[[bin]]
+name = "reqwest_client"
+path = "src/bin/reqwest_client.rs"

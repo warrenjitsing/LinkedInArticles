@@ -5,3 +5,4 @@ build_release
 Cargo.lock
 *pycache*
 src/python/build/
+*.bin

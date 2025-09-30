@@ -1,0 +1,1 @@
+pip install build_release/wheelhouse/httppy-*.whl --force-reinstall

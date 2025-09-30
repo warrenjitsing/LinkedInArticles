@@ -47,8 +47,12 @@ enable_testing()
 add_subdirectory(src/c)
 add_subdirectory(src/cpp)
 add_subdirectory(tests)
+add_subdirectory(benchmark)
 
-corrosion_import_crate(MANIFEST_PATH src/rust/Cargo.toml)
+corrosion_import_crate(
+        MANIFEST_PATH src/rust/Cargo.toml
+        BINS httprust_client reqwest_client
+)
 
 add_custom_target(python_wheel
     COMMAND ${Python_EXECUTABLE} -m build --wheel
