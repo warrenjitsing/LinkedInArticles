@@ -105,15 +105,15 @@ private:
 
 TEST(HttpClientLifecycle, ClientInitFailsWithInvalidType) {
     HttpClient client = {};
-    Error err = http_client_init(&client, 999, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, 999, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(err.code, TransportErrorCode.INIT_FAILURE);
 
-    err = http_client_init(&client, HttpTransportType.TCP, 999, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    err = http_client_init(&client, HttpTransportType.TCP, 999, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.HTTPC);
     ASSERT_EQ(err.code, HttpClientErrorCode.INIT_FAILURE);
 
-    err = http_client_init(&client, HttpTransportType.UNIX, 999, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    err = http_client_init(&client, HttpTransportType.UNIX, 999, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.HTTPC);
     ASSERT_EQ(err.code, HttpClientErrorCode.INIT_FAILURE);
 }
@@ -122,7 +122,7 @@ TEST_F(HttpClientIntegrationTest, TcpClientGetRequestSucceeds) {
     StartTcpServer();
 
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     err = client.connect(&client, "127.0.0.1", tcp_port);
@@ -147,7 +147,7 @@ TEST_F(HttpClientIntegrationTest, TcpClientPostRequestSucceeds) {
     StartTcpServer();
 
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     err = client.connect(&client, "127.0.0.1", tcp_port);
@@ -181,7 +181,7 @@ TEST_F(HttpClientIntegrationTest, UnixClientGetRequestSucceeds) {
     StartUnixServer();
 
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     err = client.connect(&client, unix_socket_path.c_str(), 0);
@@ -206,7 +206,7 @@ TEST_F(HttpClientIntegrationTest, UnixClientPostRequestSucceeds) {
     StartUnixServer();
 
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.UNIX, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     err = client.connect(&client, unix_socket_path.c_str(), 0);
@@ -237,7 +237,7 @@ TEST_F(HttpClientIntegrationTest, UnixClientPostRequestSucceeds) {
 
 TEST_F(HttpClientIntegrationTest, ClientMethodsReturnErrorOnNullptrArgs) {
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpRequest request = {};
@@ -278,7 +278,7 @@ TEST_F(HttpClientIntegrationTest, ClientMethodsReturnErrorOnNullptrArgs) {
 
 TEST_F(HttpClientIntegrationTest, GetRequestWithBodyReturnsError) {
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpRequest request = {};
@@ -296,7 +296,7 @@ TEST_F(HttpClientIntegrationTest, GetRequestWithBodyReturnsError) {
 
 TEST_F(HttpClientIntegrationTest, PostRequestWithoutBodyReturnsError) {
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpRequest request = {};
@@ -316,7 +316,7 @@ TEST_F(HttpClientIntegrationTest, PostRequestWithoutBodyReturnsError) {
 
 TEST_F(HttpClientIntegrationTest, PostRequestWithoutContentLengthReturnsError) {
     HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     ASSERT_EQ(err.type, ErrorType.NONE);
 
     HttpRequest request = {};

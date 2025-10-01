@@ -25,6 +25,11 @@ typedef enum {
     HTTP_RESPONSE_SAFE_OWNING,
 } HttpResponseMemoryPolicy;
 
+typedef enum {
+    HTTP_IO_COPY_WRITE,
+    HTTP_IO_VECTORED_WRITE
+} HttpIoPolicy;
+
 typedef struct {
     int status_code;
     const char* status_message;

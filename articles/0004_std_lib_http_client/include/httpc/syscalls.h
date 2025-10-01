@@ -3,6 +3,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 
 typedef struct {
     // Network Syscalls
@@ -14,6 +15,7 @@ typedef struct {
     int (*setsockopt) (int fd, int level, int optname, const void *optval, socklen_t optlen);
     int (*connect)(int sockfd, const struct sockaddr* addr, socklen_t addrlen);
     ssize_t (*write)(int fd, const void* buf, size_t count);
+    ssize_t (*writev) (int fd, const struct iovec* iovec, int count);
     ssize_t (*read)(int fd, void* buf, size_t count);
     int (*close)(int fd);
 
@@ -34,6 +36,7 @@ typedef struct {
     int (*strcasecmp)(const char* s1, const char* s2);
     int (*atoi)(const char* nptr);
     int (*sscanf) (const char* s, const char* format, ...);
+
 
 } HttpcSyscalls;
 

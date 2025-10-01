@@ -247,6 +247,52 @@ TEST_F(UnixTransportTest, WriteSucceedsAndReturnsBytesWritten) {
     unlink(test_socket_path.c_str());
 }
 
+TEST_F(UnixTransportTest, WriteVSucceedsAndReturnsBytesWritten) {
+    std::string test_socket_path = "/tmp/test_writev.sock";
+    unlink(test_socket_path.c_str());
+
+    int svr_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    ASSERT_NE(svr_sock, -1);
+
+    struct sockaddr_un serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sun_family = AF_UNIX;
+    strncpy(serv_addr.sun_path, test_socket_path.c_str(), sizeof(serv_addr.sun_path) - 1);
+
+    ASSERT_EQ(bind(svr_sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)), 0);
+    ASSERT_EQ(listen(svr_sock, 1), 0);
+
+    std::thread server_thread([svr_sock]() {
+        int client_fd = accept(svr_sock, nullptr, nullptr);
+        if (client_fd >= 0) {
+            char buffer[64];
+            read(client_fd, buffer, sizeof(buffer));
+            close(client_fd);
+        }
+    });
+
+    Error connect_err = transport->connect(transport->context, test_socket_path.c_str(), 0);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* part1 = "vectored ";
+    const char* part2 = "write";
+    struct iovec iov[2];
+    iov[0].iov_base = (void*)part1;
+    iov[0].iov_len = strlen(part1);
+    iov[1].iov_base = (void*)part2;
+    iov[1].iov_len = strlen(part2);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 2, &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.NONE);
+    ASSERT_EQ(bytes_written, strlen(part1) + strlen(part2));
+
+    server_thread.join();
+    close(svr_sock);
+    unlink(test_socket_path.c_str());
+}
+
 static ssize_t mock_write_fails(int, const void*, size_t) {
     return -1;
 }
@@ -260,6 +306,29 @@ TEST_F(UnixTransportTest, WriteFailsOnSocketWriteError) {
     const char* message = "test data";
     ssize_t bytes_written = 0;
     Error write_err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+static ssize_t mock_writev_fails(int, const struct iovec*, int) {
+    return -1;
+}
+
+TEST_F(UnixTransportTest, WriteVFailsOnSocketWriteError) {
+    mock_syscalls.writev = mock_writev_fails;
+    ReinitializeWithMocks();
+    Error connect_err = transport->connect(transport->context, socket_path.c_str(), 0);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* message = "test data";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 1, &bytes_written);
 
     ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
@@ -281,6 +350,31 @@ TEST_F(UnixTransportTest, WriteFailsOnClosedConnection) {
     const char* message = "test data";
     ssize_t bytes_written = 0;
     Error write_err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+static ssize_t mock_writev_fails_with_epipe(int, const struct iovec*, int) {
+    errno = EPIPE;
+    return -1;
+}
+
+TEST_F(UnixTransportTest, WriteVFailsOnClosedConnection) {
+    mock_syscalls.writev = mock_writev_fails_with_epipe;
+    ReinitializeWithMocks();
+
+    Error connect_err = transport->connect(transport->context, socket_path.c_str(), 0);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* message = "test data";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 1, &bytes_written);
 
     ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
@@ -319,4 +413,38 @@ TEST_F(UnixTransportTest, CloseFailsOnSyscallError) {
     Error close_err = transport->close(transport->context);
     ASSERT_EQ(close_err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(close_err.code, TransportErrorCode.SOCKET_CLOSE_FAILURE);
+}
+
+TEST_F(UnixTransportTest, WriteFailsIfNotConnected) {
+    const char* message = "test";
+    ssize_t bytes_written = 0;
+    Error err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+TEST_F(UnixTransportTest, WriteVFailsIfNotConnected) {
+    const char* message = "test";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error err = transport->writev(transport->context, iov, 1, &bytes_written);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+TEST_F(UnixTransportTest, ReadFailsIfNotConnected) {
+    char buffer[32] = {};
+    ssize_t bytes_read = 0;
+    Error err = transport->read(transport->context, buffer, sizeof(buffer), &bytes_read);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_READ_FAILURE);
+    ASSERT_EQ(bytes_read, -1);
 }

@@ -15,6 +15,7 @@
 #include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
+#include <boost/beast/core/multi_buffer.hpp>
 
 namespace po = boost::program_options;
 
@@ -27,6 +28,13 @@ struct Config {
     std::string host = "127.0.0.1";
     unsigned short port = 8080;
     std::string unix_socket_path = "/tmp/httpc_benchmark.sock";
+    bool verify = false;
+};
+
+struct ResponseCache {
+    std::string data_block;
+    std::vector<boost::beast::string_view> body_views;
+    std::vector<boost::beast::http::response<boost::beast::http::empty_body>> header_templates;
 };
 
 bool parse_args(int argc, char* argv[], Config& config) {
@@ -36,6 +44,7 @@ bool parse_args(int argc, char* argv[], Config& config) {
             ("help,h", "Show this help message")
             ("transport", po::value<std::string>(&config.transport_type)->default_value("tcp"), "Transport to use: 'tcp' or 'unix'")
             ("seed", po::value<uint32_t>(&config.seed)->default_value(1234), "Seed for the PRNG")
+            ("verify", po::value<bool>(&config.verify)->default_value(true), "Include checksum calculations")
             ("num-responses", po::value<int>(&config.num_responses)->default_value(100), "Number of response templates to generate")
             ("min-length", po::value<size_t>(&config.min_length)->default_value(1024), "Minimum response body size in bytes")
             ("max-length", po::value<size_t>(&config.max_length)->default_value(1024 * 1024), "Maximum response body size in bytes")
@@ -66,46 +75,6 @@ bool parse_args(int argc, char* argv[], Config& config) {
     return true;
 }
 
-bool oom_check(const Config& config) {
-    size_t required_memory = static_cast<size_t>(config.num_responses) * config.max_length;
-    long long available_memory_kb = 0;
-
-    std::ifstream meminfo("/proc/meminfo");
-    if (!meminfo.is_open()) {
-        std::cerr << "Warning: Could not open /proc/meminfo to check available memory." << std::endl;
-        return true;
-    }
-
-    std::string line;
-    while (std::getline(meminfo, line)) {
-        if (line.rfind("MemAvailable:", 0) == 0) {
-            try {
-                available_memory_kb = std::stoll(line.substr(line.find(':') + 1));
-            } catch (...) {
-                std::cerr << "Warning: Could not parse MemAvailable from /proc/meminfo." << std::endl;
-                return true;
-            }
-            break;
-        }
-    }
-
-    if (available_memory_kb == 0) {
-        std::cerr << "Warning: Could not determine available memory." << std::endl;
-        return true; // Fail open
-    }
-
-    size_t available_memory = available_memory_kb * 1024;
-
-    if (required_memory > available_memory * 0.9) {
-        std::cerr << "Error: Not enough memory." << std::endl;
-        std::cerr << "  Required for response cache: " << required_memory / (1024 * 1024) << " MB" << std::endl;
-        std::cerr << "  Available on system: " << available_memory / (1024 * 1024) << " MB" << std::endl;
-        std::cerr << "Please reduce --num-responses or --max-length." << std::endl;
-        return false;
-    }
-    return true;
-}
-
 uint64_t xor_checksum(boost::beast::string_view body) {
     return std::accumulate(body.begin(), body.end(), std::uint64_t{0}, std::bit_xor<>());
 }
@@ -117,10 +86,8 @@ std::string get_timestamp_str() {
     return std::to_string(ns);
 }
 
-std::vector<boost::beast::http::response<boost::beast::http::string_body>>
-generate_responses(const Config& config) {
-    std::vector<boost::beast::http::response<boost::beast::http::string_body>> responses;
-    responses.reserve(config.num_responses);
+ResponseCache generate_responses(const Config& config) {
+    ResponseCache cache;
 
     std::mt19937 gen(config.seed);
 
@@ -128,52 +95,52 @@ generate_responses(const Config& config) {
     constexpr size_t TIMESTAMP_LEN = 19;
     constexpr size_t METADATA_LEN = CHECKSUM_LEN + TIMESTAMP_LEN;
 
-    if (config.max_length <= METADATA_LEN) {
-        std::cerr << "Error: --max-length must be greater than " << METADATA_LEN << std::endl;
+    if (config.min_length > config.max_length) {
+        std::cerr << "Error: --min-length cannot be greater than --max-length." << std::endl;
         return {};
     }
 
-    if (config.min_length > config.max_length - METADATA_LEN) {
-        std::cerr << "Error: --min-length (" << config.min_length
-                  << ") cannot be greater than effective max length ("
-                  << config.max_length - METADATA_LEN << ")." << std::endl;
-        return {};
-    }
-
-
-    std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length - METADATA_LEN);
+    // 1. Generate the single, large data block *once*.
+    cache.data_block.resize(config.max_length);
     std::uniform_int_distribution<char> char_dist(32, 126);
+    for (char& c : cache.data_block) {
+        c = char_dist(gen);
+    }
+
+    // 2. Create a distribution for the *length* of the body views.
+    std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length - METADATA_LEN);
+
+    cache.body_views.reserve(config.num_responses);
+    cache.header_templates.reserve(config.num_responses);
 
     for (int i = 0; i < config.num_responses; ++i) {
+        // 3. For each response, pick a random length for its body.
         size_t body_len = len_dist(gen);
-        std::string random_body(body_len, '\0');
-        for (char& c : random_body) {
-            c = char_dist(gen);
-        }
 
-        uint64_t checksum_val = xor_checksum(random_body);
-        std::stringstream ss;
-        ss << std::hex << std::setw(CHECKSUM_LEN) << std::setfill('0') << checksum_val;
+        // 4. Pick a random starting point within the data_block that can accommodate that length.
+        std::uniform_int_distribution<size_t> offset_dist(0, config.max_length - body_len);
+        size_t start_offset = offset_dist(gen);
 
-        std::string final_body = random_body + ss.str() + std::string(TIMESTAMP_LEN, '0');
+        // 5. Create the lightweight string_view. No copy is performed here.
+        boost::beast::string_view body_view(&cache.data_block[start_offset], body_len);
+        cache.body_views.push_back(body_view);
 
-        boost::beast::http::response<boost::beast::http::string_body> res;
-        res.version(11); // HTTP/1.1
-        res.result(boost::beast::http::status::ok);
-        res.set(boost::beast::http::field::server, "BenchmarkServer");
-        res.set(boost::beast::http::field::content_type, "text/plain");
-        res.body() = final_body;
-        res.prepare_payload();
-
-        responses.push_back(std::move(res));
+        // 6. Create the header-only template with the correct Content-Length for this specific view.
+        boost::beast::http::response<boost::beast::http::empty_body> header_template;
+        header_template.version(11);
+        header_template.result(boost::beast::http::status::ok);
+        header_template.set(boost::beast::http::field::server, "BenchmarkServer");
+        header_template.set(boost::beast::http::field::content_type, "text/plain");
+        header_template.set(boost::beast::http::field::content_length, std::to_string(body_len + METADATA_LEN));
+        cache.header_templates.push_back(header_template);
     }
 
-    std::cout << "Generated " << responses.size() << " response templates." << std::endl;
-    return responses;
+    std::cout << "Generated " << config.num_responses << " response views into a single data block." << std::endl;
+    return cache;
 }
 
 template<class Stream>
-void do_session(Stream& stream, const std::vector<boost::beast::http::response<boost::beast::http::string_body>>& responses) {
+void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
     namespace http = boost::beast::http;
 
     size_t response_index = 0;
@@ -184,50 +151,50 @@ void do_session(Stream& stream, const std::vector<boost::beast::http::response<b
         http::request<http::string_body> req;
         http::read(stream, buffer, req, ec);
 
-        if (ec == http::error::end_of_stream) {
-            break;
-        }
-        if (ec) {
-            std::cerr << "Session read error: " << ec.message() << std::endl;
-            break;
-        }
+        if (ec == http::error::end_of_stream) { break; }
+        if (ec) { std::cerr << "Session read error: " << ec.message() << std::endl; break; }
 
         constexpr size_t REQ_CHECKSUM_LEN = 16;
-        if (req.body().size() >= REQ_CHECKSUM_LEN) {
+        if (config.verify && req.body().size() >= REQ_CHECKSUM_LEN) {
             auto payload_view = boost::beast::string_view(req.body()).substr(0, req.body().size() - REQ_CHECKSUM_LEN);
             auto received_checksum_hex = boost::beast::string_view(req.body()).substr(req.body().size() - REQ_CHECKSUM_LEN);
-
             uint64_t calculated_checksum = xor_checksum(payload_view);
-
             uint64_t received_checksum = 0;
             std::stringstream ss;
             ss << std::hex << std::string(received_checksum_hex);
             ss >> received_checksum;
-
             if (calculated_checksum != received_checksum) {
                 std::cerr << "Warning: Checksum mismatch from client!" << std::endl;
             }
         }
 
-        http::response<http::string_body> res = responses[response_index];
-        response_index = (response_index + 1) % responses.size();
+        const auto& header_template = cache.header_templates[response_index];
+        const auto& body_view = cache.body_views[response_index];
 
-        constexpr size_t TIMESTAMP_LEN = 19;
         std::string ts = get_timestamp_str();
-        if (ts.length() > TIMESTAMP_LEN) {
-            ts.resize(TIMESTAMP_LEN);
-        }
-        memcpy(&res.body()[res.body().size() - TIMESTAMP_LEN], ts.c_str(), ts.length());
+
+        uint64_t checksum_val = xor_checksum(body_view);
+        std::stringstream ss;
+        ss << std::hex << std::setw(16) << std::setfill('0') << checksum_val;
+        std::string checksum_str = ss.str();
+
+        http::response<http::string_body> res;
+        res.base() = header_template;
+
+        res.body().reserve(body_view.size() + checksum_str.size() + ts.size());
+        res.body().append(body_view.data(), body_view.size());
+        res.body().append(checksum_str);
+        res.body().append(ts);
+
+        // This is not needed because the header_template already has the correct Content-Length
+        // res.prepare_payload();
 
         http::write(stream, res, ec);
-        if (ec) {
-            std::cerr << "Session write error: " << ec.message() << std::endl;
-            break;
-        }
 
-        if (!req.keep_alive()) {
-            break;
-        }
+        response_index = (response_index + 1) % cache.body_views.size();
+
+        if (ec) { std::cerr << "Session write error: " << ec.message() << std::endl; break; }
+        if (!req.keep_alive()) { break; }
     }
 
     if constexpr (std::is_same_v<typename Stream::protocol_type, boost::asio::ip::tcp>) {
@@ -238,7 +205,7 @@ void do_session(Stream& stream, const std::vector<boost::beast::http::response<b
 }
 
 template<class Acceptor, class Endpoint>
-void do_listen(boost::asio::io_context& ioc, const Endpoint& endpoint, const std::vector<boost::beast::http::response<boost::beast::http::string_body>>& responses) {
+void do_listen(boost::asio::io_context& ioc, const Endpoint& endpoint, const ResponseCache& cache, Config& config) {
     boost::system::error_code ec;
 
     Acceptor acceptor(ioc);
@@ -275,11 +242,10 @@ void do_listen(boost::asio::io_context& ioc, const Endpoint& endpoint, const std
         return;
     }
 
-    do_session(socket, responses);
+    do_session(socket, cache, config);
 
     std::cout << "Session complete. Server shutting down." << std::endl;
 }
-
 
 int main(int argc, char* argv[]) {
     Config config;
@@ -287,12 +253,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (!oom_check(config)) {
-        return 1;
-    }
+    // The OOM check was removed as per your instruction.
 
-    auto responses = generate_responses(config);
-    if (responses.empty()) {
+    auto response_cache = generate_responses(config);
+    // We now check if the vector inside the struct is empty.
+    if (response_cache.body_views.empty()) {
         return 1;
     }
 
@@ -300,11 +265,13 @@ int main(int argc, char* argv[]) {
 
     if (config.transport_type == "tcp") {
         auto const endpoint = boost::asio::ip::tcp::endpoint{boost::asio::ip::make_address(config.host), config.port};
-        do_listen<boost::asio::ip::tcp::acceptor, boost::asio::ip::tcp::endpoint>(ioc, endpoint, responses);
+        // We now pass the entire response_cache struct.
+        do_listen<boost::asio::ip::tcp::acceptor, boost::asio::ip::tcp::endpoint>(ioc, endpoint, response_cache, config);
     } else if (config.transport_type == "unix") {
         std::remove(config.unix_socket_path.c_str());
         auto const endpoint = boost::asio::local::stream_protocol::endpoint{config.unix_socket_path};
-        do_listen<boost::asio::local::stream_protocol::acceptor, boost::asio::local::stream_protocol::endpoint>(ioc, endpoint, responses);
+        // We now pass the entire response_cache struct.
+        do_listen<boost::asio::local::stream_protocol::acceptor, boost::asio::local::stream_protocol::endpoint>(ioc, endpoint, response_cache, config);
     }
 
     return 0;

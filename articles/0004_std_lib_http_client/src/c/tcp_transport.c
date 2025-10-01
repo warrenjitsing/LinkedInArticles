@@ -66,6 +66,19 @@ static Error tcp_transport_write(void* context, const void* buffer, size_t len, 
     return (Error){ErrorType.NONE, 0};
 }
 
+static Error tcp_transport_writev(void* context, const struct iovec* iov, int iovcnt, ssize_t* bytes_written) {
+    TcpClient* self = (TcpClient*)context;
+    if (self->fd <= 0) {
+        *bytes_written = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
+    *bytes_written = self->syscalls->writev(self->fd, iov, iovcnt);
+    if (*bytes_written == -1) {
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
+    return (Error){ErrorType.NONE, 0};
+}
+
 static Error tcp_transport_read(void* context, void* buffer, size_t len, ssize_t* bytes_read) {
     TcpClient* self = (TcpClient*)context;
     if (self->fd <= 0) {
@@ -123,6 +136,7 @@ TransportInterface* tcp_transport_new(const HttpcSyscalls* syscalls_override) {
     self->interface.context = self;
     self->interface.connect = tcp_transport_connect;
     self->interface.write = tcp_transport_write;
+    self->interface.writev = tcp_transport_writev;
     self->interface.read = tcp_transport_read;
     self->interface.close = tcp_transport_close;
     self->interface.destroy = tcp_transport_destroy;

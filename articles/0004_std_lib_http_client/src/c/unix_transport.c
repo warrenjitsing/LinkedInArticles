@@ -30,7 +30,24 @@ static Error unix_transport_connect(void* context, const char* host, int port) {
 
 static Error unix_transport_write(void* context, const void* buffer, size_t len, ssize_t* bytes_written) {
     UnixClient* self = (UnixClient*)context;
+    if (self->fd <= 0) {
+        *bytes_written = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
     *bytes_written = self->syscalls->write(self->fd, buffer, len);
+    if (*bytes_written == -1) {
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
+    return (Error){ErrorType.NONE, 0};
+}
+
+static Error unix_transport_writev(void* context, const struct iovec* iov, int iovcnt, ssize_t* bytes_written) {
+    UnixClient* self = (UnixClient*)context;
+    if (self->fd <= 0) {
+        *bytes_written = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
+    }
+    *bytes_written = self->syscalls->writev(self->fd, iov, iovcnt);
     if (*bytes_written == -1) {
         return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_WRITE_FAILURE};
     }
@@ -39,6 +56,10 @@ static Error unix_transport_write(void* context, const void* buffer, size_t len,
 
 static Error unix_transport_read(void* context, void* buffer, size_t len, ssize_t* bytes_read) {
     UnixClient* self = (UnixClient*)context;
+    if (self->fd <= 0) {
+        *bytes_read = -1;
+        return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_READ_FAILURE};
+    }
     *bytes_read = self->syscalls->read(self->fd, buffer, len);
     if (*bytes_read == -1) {
         return (Error){ErrorType.TRANSPORT, TransportErrorCode.SOCKET_READ_FAILURE};
@@ -90,6 +111,7 @@ TransportInterface* unix_transport_new(const HttpcSyscalls* syscalls_override) {
     self->interface.context = self;
     self->interface.connect = unix_transport_connect;
     self->interface.write = unix_transport_write;
+    self->interface.writev = unix_transport_writev;
     self->interface.read = unix_transport_read;
     self->interface.close = unix_transport_close;
     self->interface.destroy = unix_transport_destroy;

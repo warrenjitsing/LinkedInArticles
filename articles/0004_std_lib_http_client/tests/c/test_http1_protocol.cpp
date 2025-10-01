@@ -108,7 +108,7 @@ protected:
         mock_transport_interface.read = mock_transport_read;
         mock_transport_interface.close = mock_transport_close;
 
-        protocol = http1_protocol_new(&mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+        protocol = http1_protocol_new(&mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
         ASSERT_NE(protocol, nullptr);
         protocol_impl = (Http1Protocol*)protocol;
     }
@@ -130,7 +130,7 @@ TEST_F(HttpProtocolTest, NewSucceedsAndInitializesInterface) {
 TEST(HttpProtocolLifecycle, DestroyHandlesNullGracefully) {
     HttpcSyscalls mock_syscalls;
     httpc_syscalls_init_default(&mock_syscalls);
-    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
     protocol->destroy(protocol->context);
     SUCCEED();
 }
@@ -147,7 +147,7 @@ TEST(HttpProtocolLifecycle, NewFailsWhenMallocFails) {
 
     mock_syscalls.malloc = mock_malloc_fails;
 
-    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
+    HttpProtocolInterface* protocol = http1_protocol_new(nullptr, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_COPY_WRITE);
 
     ASSERT_EQ(protocol, nullptr);
 }
@@ -487,7 +487,7 @@ TEST_F(HttpProtocolTest, PerformRequestSucceedsWhenResponseIsLargerThanInitialBu
 
 TEST_F(HttpProtocolTest, SafeResponseSucceedsAndIsOwning) {
     HttpProtocolInterface* safe_protocol = http1_protocol_new(
-        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING, HTTP_IO_COPY_WRITE);
     ASSERT_NE(safe_protocol, nullptr);
     auto* safe_protocol_impl = (Http1Protocol*)safe_protocol;
 
@@ -521,7 +521,7 @@ TEST_F(HttpProtocolTest, SafeResponseSucceedsAndIsOwning) {
 
 TEST_F(HttpProtocolTest, SafeResponseDestroyCleansUp) {
     HttpProtocolInterface* safe_protocol = http1_protocol_new(
-        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING, HTTP_IO_COPY_WRITE);
     ASSERT_NE(safe_protocol, nullptr);
 
     const std::string mock_response_str = "HTTP/1.1 204 No Content\r\n\r\n";
@@ -541,7 +541,7 @@ TEST_F(HttpProtocolTest, SafeResponseDestroyCleansUp) {
 
 TEST_F(HttpProtocolTest, SafeResponseHandlesReadFailureAndCleansUp) {
     HttpProtocolInterface* safe_protocol = http1_protocol_new(
-        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING);
+        &mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_SAFE_OWNING, HTTP_IO_COPY_WRITE);
     ASSERT_NE(safe_protocol, nullptr);
 
     mock_transport_state.should_fail_read = true;

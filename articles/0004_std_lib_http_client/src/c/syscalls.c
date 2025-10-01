@@ -36,4 +36,5 @@ void httpc_syscalls_init_default(HttpcSyscalls* syscalls) {
     syscalls->strcasecmp = strcasecmp;
     syscalls->atoi = atoi;
     syscalls->sscanf = sscanf;
+    syscalls->writev = writev;
 }

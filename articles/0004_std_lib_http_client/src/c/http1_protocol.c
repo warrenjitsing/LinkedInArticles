@@ -50,7 +50,7 @@ static void http_response_parse_headers(Http1Protocol* self, HttpResponse* res, 
     }
 }
 
-static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* request) {
+static Error build_request_headers_in_buffer(Http1Protocol* self, const HttpRequest* request) {
     Error err = {ErrorType.NONE, 0};
     self->buffer.len = 0;
 
@@ -67,12 +67,29 @@ static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* req
         if (err.type != ErrorType.NONE) return err;
     }
     err = growable_buffer_append(self, &self->buffer, "\r\n", 2);
-    if (err.type != ErrorType.NONE) return err;
 
+    return err;
+}
+
+static size_t get_content_length_from_request(const HttpRequest* request) {
+    for (size_t i = 0; i < request->num_headers; ++i) {
+        // TODO: dependency injection
+        if (request->headers[i].key && request->headers[i].value &&
+            strcasecmp(request->headers[i].key, "Content-Length") == 0) {
+            return (size_t)atoi(request->headers[i].value);
+            }
+    }
+    return 0;
+}
+
+static Error build_request_in_buffer(Http1Protocol* self, const HttpRequest* request, size_t body_len) {
+    Error err = build_request_headers_in_buffer(self, request);
+    if (err.type != ErrorType.NONE) {
+        return err;
+    }
 
     if (request->body && request->method == HTTP_POST) {
-        err = growable_buffer_append(self, &self->buffer, request->body, self->syscalls->strlen(request->body));
-        if (err.type != ErrorType.NONE) return err;
+        err = growable_buffer_append(self, &self->buffer, request->body, body_len);
     }
 
     return err;
@@ -197,24 +214,42 @@ static Error parse_response_safe(void* context, HttpResponse* response) {
     return (Error){ErrorType.NONE, 0};
 }
 
+
 static Error http1_protocol_perform_request(void* context,
                                             const HttpRequest* request,
                                             HttpResponse* response) {
     Http1Protocol* self = (Http1Protocol*)context;
     Error err = {ErrorType.NONE, 0};
     ssize_t bytes_written = 0;
+    size_t body_len = get_content_length_from_request(request);
+
+    if (request->method == HTTP_POST && self->io_policy == HTTP_IO_VECTORED_WRITE) {
+        err = build_request_headers_in_buffer(self, request);
+        if (err.type != ErrorType.NONE) {
+            return err;
+        }
+
+        struct iovec iov[2];
+        iov[0].iov_base = self->buffer.data;
+        iov[0].iov_len = self->buffer.len;
+        iov[1].iov_base = (void*)request->body;
+        iov[1].iov_len = body_len;
+
+        err = self->transport->writev(self->transport->context, iov, 2, &bytes_written);
+
+    } else {
+        err = build_request_in_buffer(self, request, body_len);
+        if (err.type != ErrorType.NONE) {
+            return err;
+        }
+        err = self->transport->write(self->transport->context, self->buffer.data, self->buffer.len, &bytes_written);
+    }
+
+    if (err.type != ErrorType.NONE) {
+        return err;
+    }
+
     response->content_length = 0;
-
-    err = build_request_in_buffer(self, request);
-    if (err.type != ErrorType.NONE) {
-        return err;
-    }
-
-    err = self->transport->write(self->transport->context, self->buffer.data, self->buffer.len, &bytes_written);
-    if (err.type != ErrorType.NONE) {
-        return err;
-    }
-
     return self->parse_response(self, response);
 }
 
@@ -244,7 +279,8 @@ static void http1_protocol_destroy(void* context) {
 HttpProtocolInterface* http1_protocol_new(
     TransportInterface* transport,
     const HttpcSyscalls* syscalls_override,
-    HttpResponseMemoryPolicy policy
+    HttpResponseMemoryPolicy policy,
+    HttpIoPolicy io_policy
 ) {
     if (!default_syscalls_initialized) {
         httpc_syscalls_init_default(&DEFAULT_SYSCALLS);
@@ -264,6 +300,7 @@ HttpProtocolInterface* http1_protocol_new(
     self->syscalls = syscalls_override;
     self->transport = transport;
     self->policy = policy;
+    self->io_policy = io_policy;
 
     self->interface.context = self;
     self->interface.transport = transport;

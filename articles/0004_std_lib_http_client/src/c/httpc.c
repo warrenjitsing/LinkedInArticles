@@ -55,7 +55,7 @@ static Error http_client_post(struct HttpClient* self,
     return self->protocol->perform_request(self->protocol->context, request, response);
 }
 
-Error http_client_init_with_protocol(struct HttpClient* self, HttpProtocolInterface* protocol, HttpResponseMemoryPolicy policy) {
+Error http_client_init_with_protocol(struct HttpClient* self, HttpProtocolInterface* protocol) {
     self->protocol = protocol;
     self->connect = http_client_connect;
     self->disconnect = http_client_disconnect;
@@ -64,7 +64,7 @@ Error http_client_init_with_protocol(struct HttpClient* self, HttpProtocolInterf
     return (Error){ErrorType.NONE, 0};
 }
 
-Error http_client_init(struct HttpClient* self, int transport_type, int protocol_type, HttpResponseMemoryPolicy policy) {
+Error http_client_init(struct HttpClient* self, int transport_type, int protocol_type, HttpResponseMemoryPolicy policy, HttpIoPolicy io_policy) {
     TransportInterface* transport = NULL;
     if (transport_type == HttpTransportType.TCP) {
         transport = tcp_transport_new(NULL);
@@ -78,7 +78,7 @@ Error http_client_init(struct HttpClient* self, int transport_type, int protocol
 
     HttpProtocolInterface* protocol = NULL;
     if (protocol_type == HttpProtocolType.HTTP1) {
-        protocol = http1_protocol_new(transport, NULL, policy);
+        protocol = http1_protocol_new(transport, NULL, policy, io_policy);
     }
 
     if (!protocol) {
@@ -87,7 +87,7 @@ Error http_client_init(struct HttpClient* self, int transport_type, int protocol
         return (Error){ErrorType.HTTPC, HttpClientErrorCode.INIT_FAILURE};
     }
 
-    return http_client_init_with_protocol(self, protocol, policy);
+    return http_client_init_with_protocol(self, protocol);
 }
 
 void http_client_destroy(struct HttpClient* self) {

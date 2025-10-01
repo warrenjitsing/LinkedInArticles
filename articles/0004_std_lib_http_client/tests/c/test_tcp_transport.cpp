@@ -365,6 +365,77 @@ TEST_F(TcpTransportTest, WriteFailsOnSocketWriteError) {
     ASSERT_EQ(bytes_written, -1);
 }
 
+TEST_F(TcpTransportTest, WriteVSucceedsAndReturnsBytesWritten) {
+    int svr_sock = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_NE(svr_sock, -1);
+
+    struct sockaddr_in serv_addr;
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    serv_addr.sin_port = 0;
+    ASSERT_EQ(bind(svr_sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)), 0);
+
+    socklen_t len = sizeof(serv_addr);
+    ASSERT_EQ(getsockname(svr_sock, (struct sockaddr*)&serv_addr, &len), 0);
+    int port = ntohs(serv_addr.sin_port);
+    ASSERT_EQ(listen(svr_sock, 1), 0);
+
+    std::thread server_thread([svr_sock]() {
+        int client_fd = accept(svr_sock, nullptr, nullptr);
+        if (client_fd >= 0) {
+            char buffer[64];
+            read(client_fd, buffer, sizeof(buffer));
+            close(client_fd);
+        }
+    });
+
+    Error connect_err = transport->connect(transport->context, "127.0.0.1", port);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* part1 = "test ";
+    const char* part2 = "data";
+    struct iovec iov[2];
+    iov[0].iov_base = (void*)part1;
+    iov[0].iov_len = strlen(part1);
+    iov[1].iov_base = (void*)part2;
+    iov[1].iov_len = strlen(part2);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 2, &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.NONE);
+    ASSERT_EQ(bytes_written, strlen(part1) + strlen(part2));
+
+    shutdown(svr_sock, SHUT_RDWR);
+    server_thread.join();
+    close(svr_sock);
+}
+
+static ssize_t mock_writev_fails(int, const struct iovec*, int) {
+    return -1;
+}
+
+TEST_F(TcpTransportTest, WriteVFailsOnSocketWriteError) {
+    mock_syscalls.writev = mock_writev_fails;
+    ReinitializeWithMocks();
+
+    Error connect_err = transport->connect(transport->context, "127.0.0.1", listener_port);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* message = "test data";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 1, &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
 static bool setsockopt_called_with_nodelay = false;
 static int mock_setsockopt_capture(int, int level, int optname, const void* optval, socklen_t) {
     if (level == IPPROTO_TCP && optname == TCP_NODELAY) {
@@ -401,6 +472,31 @@ TEST_F(TcpTransportTest, WriteFailsOnClosedConnection) {
     const char* message = "test data";
     ssize_t bytes_written = 0;
     Error write_err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+static ssize_t mock_writev_fails_with_epipe(int, const struct iovec*, int) {
+    errno = EPIPE;
+    return -1;
+}
+
+TEST_F(TcpTransportTest, WriteVFailsOnClosedConnection) {
+    mock_syscalls.writev = mock_writev_fails_with_epipe;
+    ReinitializeWithMocks();
+
+    Error connect_err = transport->connect(transport->context, "127.0.0.1", listener_port);
+    ASSERT_EQ(connect_err.type, ErrorType.NONE);
+
+    const char* message = "test data";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error write_err = transport->writev(transport->context, iov, 1, &bytes_written);
 
     ASSERT_EQ(write_err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(write_err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
@@ -452,6 +548,20 @@ TEST_F(TcpTransportTest, WriteFailsIfNotConnected) {
     const char* message = "test";
     ssize_t bytes_written = 0;
     Error err = transport->write(transport->context, message, strlen(message), &bytes_written);
+
+    ASSERT_EQ(err.type, ErrorType.TRANSPORT);
+    ASSERT_EQ(err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);
+    ASSERT_EQ(bytes_written, -1);
+}
+
+TEST_F(TcpTransportTest, WriteVFailsIfNotConnected) {
+    const char* message = "test";
+    struct iovec iov[1];
+    iov[0].iov_base = (void*)message;
+    iov[0].iov_len = strlen(message);
+
+    ssize_t bytes_written = 0;
+    Error err = transport->writev(transport->context, iov, 1, &bytes_written);
 
     ASSERT_EQ(err.type, ErrorType.TRANSPORT);
     ASSERT_EQ(err.code, TransportErrorCode.SOCKET_WRITE_FAILURE);

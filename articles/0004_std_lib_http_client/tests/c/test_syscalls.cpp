@@ -20,6 +20,7 @@ TEST(Syscalls, DefaultInitialization) {
     ASSERT_EQ(syscalls.setsockopt, setsockopt);
     ASSERT_EQ(syscalls.connect, connect);
     ASSERT_EQ(syscalls.write, write);
+    ASSERT_EQ(syscalls.writev, writev);
     ASSERT_EQ(syscalls.read, read);
     ASSERT_EQ(syscalls.close, close);
 
