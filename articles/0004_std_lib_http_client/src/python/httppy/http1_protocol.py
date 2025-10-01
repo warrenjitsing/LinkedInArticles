@@ -45,7 +45,7 @@ class Http1Protocol(HttpProtocol):
         return self._parse_unsafe_response()
 
     def _build_request_string(self, request: HttpRequest) -> None:
-        self._buffer.clear()
+        self._buffer = bytearray()
 
         request_line = f"{request.method.value} {request.path} HTTP/1.1\r\n"
         self._buffer += request_line.encode('ascii')
