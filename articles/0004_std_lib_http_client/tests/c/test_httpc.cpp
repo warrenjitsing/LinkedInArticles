@@ -332,3 +332,36 @@ TEST_F(HttpClientIntegrationTest, PostRequestWithoutContentLengthReturnsError) {
 
     http_client_destroy(&client);
 }
+
+TEST_F(HttpClientIntegrationTest, TcpClientVectoredPostRequestSucceeds) {
+    StartTcpServer();
+
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_VECTORED_WRITE);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    err = client.connect(&client, "127.0.0.1", tcp_port);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    const char* body_str = "data=value";
+    char content_len_str[12];
+    snprintf(content_len_str, sizeof(content_len_str), "%zu", strlen(body_str));
+
+    HttpRequest request = {};
+    request.path = "/submit";
+    request.body = body_str;
+    request.headers[0] = {"Content-Length", content_len_str};
+    request.num_headers = 1;
+    HttpResponse response = {};
+    err = client.post(&client, &request, &response);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    ASSERT_EQ(response.status_code, 200);
+    const std::string body(response.body, response.body_len);
+    ASSERT_EQ(body, "success");
+
+    ASSERT_NE(captured_request.find("POST /submit HTTP/1.1"), std::string::npos);
+    ASSERT_NE(captured_request.find("\r\n\r\ndata=value"), std::string::npos);
+
+    http_client_destroy(&client);
+}

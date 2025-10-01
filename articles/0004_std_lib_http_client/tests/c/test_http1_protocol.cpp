@@ -21,6 +21,7 @@ struct MockTransportState {
     int port_received = -1;
 
     bool write_called = false;
+    bool writev_called = false;
     bool read_called = false;
     bool close_called = false;
 
@@ -51,6 +52,21 @@ Error mock_transport_write(void* context, const void* buffer, size_t len, ssize_
     const auto* char_buffer = static_cast<const char*>(buffer);
     state->write_buffer.insert(state->write_buffer.end(), char_buffer, char_buffer + len);
     *bytes_written = len;
+    return {ErrorType.NONE, 0};
+}
+
+Error mock_transport_writev(void* context, const struct iovec* iov, int iovcnt, ssize_t* bytes_written) {
+    auto* state = static_cast<MockTransportState*>(context);
+    state->writev_called = true;
+
+    ssize_t total_bytes = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+        const auto* char_buffer = static_cast<const char*>(iov[i].iov_base);
+        state->write_buffer.insert(state->write_buffer.end(), char_buffer, char_buffer + iov[i].iov_len);
+        total_bytes += iov[i].iov_len;
+    }
+
+    *bytes_written = total_bytes;
     return {ErrorType.NONE, 0};
 }
 
@@ -554,4 +570,41 @@ TEST_F(HttpProtocolTest, SafeResponseHandlesReadFailureAndCleansUp) {
     ASSERT_EQ(err.code, TransportErrorCode.SOCKET_READ_FAILURE);
 
     safe_protocol->destroy(safe_protocol->context);
+}
+
+TEST_F(HttpProtocolTest, PerformRequestUsesVectoredWriteForPost) {
+    // 1. Set up the mock interface to use our new writev function
+    mock_transport_interface.writev = mock_transport_writev;
+
+    // 2. Destroy the default protocol and create a new one with the vectored write policy
+    protocol->destroy(protocol->context);
+    protocol = http1_protocol_new(&mock_transport_interface, &mock_syscalls, HTTP_RESPONSE_UNSAFE_ZERO_COPY, HTTP_IO_VECTORED_WRITE);
+    ASSERT_NE(protocol, nullptr);
+
+    // 3. Create a POST request
+    HttpRequest request = {};
+    request.method = HTTP_POST;
+    request.path = "/api/submit";
+    request.body = "{\"data\":true}";
+    request.headers[0] = {"Host", "localhost"};
+    request.headers[1] = {"Content-Length", "13"};
+    request.num_headers = 2;
+
+    // 4. Perform the request
+    HttpResponse response = {};
+    protocol->perform_request(protocol->context, &request, &response);
+
+    // 5. Assert that the correct functions were (and were not) called
+    ASSERT_TRUE(mock_transport_state.writev_called);
+    ASSERT_FALSE(mock_transport_state.write_called);
+
+    // 6. Assert that the data received by writev is correct
+    const std::string expected = "POST /api/submit HTTP/1.1\r\n"
+                                 "Host: localhost\r\n"
+                                 "Content-Length: 13\r\n"
+                                 "\r\n"
+                                 "{\"data\":true}";
+    const std::string actual(mock_transport_state.write_buffer.begin(),
+                             mock_transport_state.write_buffer.end());
+    ASSERT_EQ(actual, expected);
 }
