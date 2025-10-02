@@ -65,11 +65,10 @@ def main():
     try:
         client.connect(args.host, args.port)
 
-        data_tape_offset = 0
         for i in range(args.num_requests):
             req_size = request_sizes[i % len(request_sizes)]
-            body_slice = data_block_view[data_tape_offset : data_tape_offset + req_size]
-            data_tape_offset = (data_tape_offset + req_size) % len(data_block)
+            body_slice = data_block_view[:req_size]
+
 
             payload = bytearray(body_slice)
 

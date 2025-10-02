@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -198,21 +199,20 @@ int main(int argc, char* argv[]) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &response_data);
 
-    size_t data_tape_offset = 0;
     for (uint64_t i = 0; i < config.num_requests; ++i) {
         response_buffer.len = 0; // Reset buffer for the new response
         response_data.current_index = i;
 
         size_t req_size = benchmark_data.sizes[i % benchmark_data.num_requests];
-        const char* body_slice = benchmark_data.data_block + data_tape_offset;
-        data_tape_offset = (data_tape_offset + req_size) % benchmark_data.data_block_size;
+        const char* body_slice = benchmark_data.data_block;
+
 
         if (config.verify) {
             uint64_t checksum = xor_checksum(body_slice, req_size);
             payload_size = req_size + 16;
-            payload_buffer = realloc(payload_buffer, payload_size);
+            payload_buffer = realloc(payload_buffer, payload_size + 1);
             memcpy(payload_buffer, body_slice, req_size);
-            snprintf(payload_buffer + req_size, 17, "%016lx", checksum);
+            snprintf(payload_buffer + req_size, 17, "%016" PRIx64, checksum);
 
             curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload_buffer);
             curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, payload_size);

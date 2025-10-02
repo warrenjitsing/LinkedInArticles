@@ -152,7 +152,6 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
         if (config.verify && req.body().size() >= REQ_CHECKSUM_LEN) {
             auto payload_view = boost::beast::string_view(req.body()).substr(0, req.body().size() - REQ_CHECKSUM_LEN);
             auto received_checksum_hex = boost::beast::string_view(req.body()).substr(req.body().size() - REQ_CHECKSUM_LEN);
-            std::cout << "received " << req.body() << std::endl;
 
             uint64_t calculated_checksum = xor_checksum(payload_view);
             uint64_t received_checksum = 0;
@@ -182,7 +181,6 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
         res.body().append(checksum_str);
         res.body().append(ts);
 
-        std::cout << "sending " << res.body() << std::endl;
         http::write(stream, res, ec);
 
         response_index = (response_index + 1) % cache.body_views.size();

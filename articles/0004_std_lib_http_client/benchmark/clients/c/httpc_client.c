@@ -142,17 +142,23 @@ int main(int argc, char* argv[]) {
     err = client.connect(&client, config.host, config.port);
     if (err.type != ErrorType.NONE) {
         fprintf(stderr, "Failed to connect to http server\n");
+        http_client_destroy(&client);
         return 1;
     }
 
-    char* payload_buffer = NULL;
+    size_t max_req_size = 0;
+    for (uint64_t i = 0; i < benchmark_data.num_requests; ++i) {
+        if (benchmark_data.sizes[i] > max_req_size) {
+            max_req_size = benchmark_data.sizes[i];
+        }
+    }
+    size_t max_payload_size = max_req_size + 16;
+    char* payload_buffer = malloc(max_payload_size + 1);
     char content_len_str[32];
 
-    size_t data_tape_offset = 0;
     for (uint64_t i = 0; i < config.num_requests; ++i) {
         size_t req_size = benchmark_data.sizes[i % benchmark_data.num_requests];
-        const char* body_slice = benchmark_data.data_block + data_tape_offset;
-        data_tape_offset = (data_tape_offset + req_size) % benchmark_data.data_block_size;
+        const char* body_slice = benchmark_data.data_block;
 
         HttpRequest request = {0};
         request.path = "/";
@@ -160,7 +166,6 @@ int main(int argc, char* argv[]) {
         if (config.verify) {
             uint64_t checksum = xor_checksum(body_slice, req_size);
             size_t payload_size = req_size + 16;
-            payload_buffer = realloc(payload_buffer, payload_size + 1);
             memcpy(payload_buffer, body_slice, req_size);
             snprintf(payload_buffer + req_size, 17, "%016" PRIx64, checksum);
 
@@ -175,8 +180,6 @@ int main(int argc, char* argv[]) {
         request.headers[0].value = content_len_str;
         request.num_headers = 1;
 
-        printf("sending %s\n", request.body);
-
         HttpResponse response = {0};
         err = client.post(&client, &request, &response);
         uint64_t client_receive_time = get_nanoseconds();
@@ -187,17 +190,20 @@ int main(int argc, char* argv[]) {
         }
 
         if (config.verify) {
-            size_t res_payload_len = response.body_len - 35;
-            const char* res_checksum_hex = response.body + res_payload_len;
-            uint64_t calculated_checksum = xor_checksum(response.body, res_payload_len);
-            uint64_t received_checksum = 0;
-            sscanf(res_checksum_hex, "%16" SCNx64, &received_checksum);
-            if (calculated_checksum != received_checksum) {
-                fprintf(stderr, "Warning: Response checksum mismatch on request %lu!\n", i);
+            if (response.body_len < 35) {
+                fprintf(stderr, "Warning: Response body too short for verification on request %lu!\n", i);
+            } else {
+                size_t res_payload_len = response.body_len - 35;
+                const char* res_checksum_hex = response.body + res_payload_len;
+                uint64_t calculated_checksum = xor_checksum(response.body, res_payload_len);
+                uint64_t received_checksum = 0;
+                sscanf(res_checksum_hex, "%16" SCNx64, &received_checksum);
+                if (calculated_checksum != received_checksum) {
+                    fprintf(stderr, "Warning: Response checksum mismatch on request %lu!\n", i);
+                }
             }
         }
 
-        printf("received %s\n", response.body);
         const char* server_timestamp_str = response.body + (response.body_len - 19);
         uint64_t server_timestamp = atoll(server_timestamp_str);
         latencies[i] = client_receive_time - server_timestamp;
