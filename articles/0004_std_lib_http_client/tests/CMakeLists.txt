@@ -1,4 +1,5 @@
 include(GoogleTest)
+find_package(Boost REQUIRED COMPONENTS system thread program_options)
 
 # --- C Language Tests ---
 add_executable(httpc_tests
@@ -59,5 +60,7 @@ target_link_libraries(httpcpp_client_tests PRIVATE
         httpcpp_lib
         GTest::gmock
         GTest::gtest_main
+        Boost::system
+        Boost::thread
 )
 gtest_discover_tests(httpcpp_client_tests)

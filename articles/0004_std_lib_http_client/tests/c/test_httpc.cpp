@@ -7,6 +7,8 @@
 #include <functional>
 #include <random>
 #include <iomanip>
+#include <cinttypes>
+#include <charconv>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -14,9 +16,11 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+
 extern "C" {
 #include <httpc/httpc.h>
 }
+
 
 class HttpClientIntegrationTest : public ::testing::Test {
 protected:
@@ -100,19 +104,18 @@ protected:
         }
     }
 
+    void RunMultiRequestLoop(HttpIoPolicy io_policy, HttpResponseMemoryPolicy res_policy);
+
 private:
-    // Simplified to handle just one connection, like the C++ fixture
     void AcceptLoop() {
         int client_fd = accept(server_fd, nullptr, nullptr);
         if (client_fd < 0) {
             return;
         }
 
-        // If custom logic was provided, run it.
         if (server_logic_) {
             server_logic_(client_fd);
         } else {
-            // Otherwise, fall back to the default canned response behavior.
             std::vector<char> buffer(4096, 0);
             ssize_t bytes_read = read(client_fd, buffer.data(), buffer.size() - 1);
             if (bytes_read > 0) {
@@ -125,6 +128,146 @@ private:
     }
 };
 
+uint64_t client_xor_checksum(const char* data, size_t len) {
+    uint64_t checksum = 0;
+    const unsigned char* p = (const unsigned char*)data;
+    for (size_t i = 0; i < len; ++i) {
+        checksum ^= p[i];
+    }
+    return checksum;
+}
+
+
+std::string uint64_to_hex(uint64_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::setw(16) << std::setfill('0') << val;
+    return ss.str();
+}
+
+void HttpClientIntegrationTest::RunMultiRequestLoop(HttpIoPolicy io_policy, HttpResponseMemoryPolicy res_policy) {
+    const int NUM_CYCLES = 50;
+
+    auto server_logic = [NUM_CYCLES](int client_fd) {
+        std::mt19937 gen(4321);
+        std::uniform_int_distribution<char> char_dist(32, 126);
+        std::uniform_int_distribution<size_t> len_dist(512, 1024);
+        std::vector<char> buffer;
+        size_t processed_offset = 0;
+
+        for (int i = 0; i < NUM_CYCLES; ++i) {
+            const char* headers_end = nullptr;
+            size_t content_length = 0;
+            size_t request_size = 0;
+
+            while (true) {
+                std::string_view search_area(buffer.data() + processed_offset, buffer.size() - processed_offset);
+                if (auto pos = search_area.find("\r\n\r\n"); pos != std::string_view::npos) {
+                    headers_end = buffer.data() + processed_offset + pos;
+
+                    std::string_view headers(buffer.data() + processed_offset, pos);
+                    if (auto cl_pos = headers.find("Content-Length: "); cl_pos != std::string_view::npos) {
+                        std::from_chars(headers.data() + cl_pos + 16, headers.data() + headers.length(), content_length);
+                    }
+                    request_size = (headers_end - (buffer.data() + processed_offset)) + 4 + content_length;
+                }
+
+                if (request_size > 0 && (buffer.size() - processed_offset) >= request_size) {
+                    break;
+                }
+
+                // Read more data
+                size_t old_size = buffer.size();
+                buffer.resize(old_size + 4096);
+                ssize_t bytes_read = read(client_fd, buffer.data() + old_size, 4096);
+                if (bytes_read <= 0) {
+                    ADD_FAILURE() << "Server failed to read on iteration " << i;
+                    return;
+                }
+                buffer.resize(old_size + bytes_read);
+            }
+
+            const char* body_start = headers_end + 4;
+
+            if (content_length >= 16) {
+                size_t payload_len = content_length - 16;
+                uint64_t calculated = client_xor_checksum(body_start, payload_len);
+                uint64_t received = 0;
+                sscanf(body_start + payload_len, "%16" SCNx64, &received);
+                ASSERT_EQ(calculated, received) << "Server-side checksum mismatch on iteration " << i;
+            }
+
+            processed_offset += request_size;
+
+            size_t res_body_len = len_dist(gen);
+            std::string res_payload(res_body_len, '\0');
+            for (char& c : res_payload) { c = char_dist(gen); }
+            uint64_t res_checksum = client_xor_checksum(res_payload.c_str(), res_payload.size());
+            std::string res_checksum_hex = uint64_to_hex(res_checksum);
+            std::string timestamp_str = "0";
+            timestamp_str.resize(19, '0');
+            std::string final_body = res_payload + res_checksum_hex + timestamp_str;
+            std::string response_str = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(final_body.length()) + "\r\n\r\n" + final_body;
+            write(client_fd, response_str.c_str(), response_str.length());
+        }
+    };
+
+    StartTcpServer(server_logic);
+
+    HttpClient client = {};
+    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, res_policy, io_policy);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    err = client.connect(&client, "127.0.0.1", tcp_port);
+    ASSERT_EQ(err.type, ErrorType.NONE);
+
+    std::mt19937 gen(1234);
+    std::uniform_int_distribution<char> char_dist(32, 126);
+    std::uniform_int_distribution<size_t> len_dist(512, 1024);
+
+    char content_len_str[32];
+    char* payload_buffer = NULL;
+
+    for (int i = 0; i < NUM_CYCLES; ++i) {
+        size_t req_size = len_dist(gen);
+        std::vector<char> body_slice(req_size);
+        for(char& c : body_slice) { c = char_dist(gen); }
+
+        uint64_t checksum = client_xor_checksum(body_slice.data(), req_size);
+        size_t payload_size = req_size + 16;
+        payload_buffer = (char*)realloc(payload_buffer, payload_size + 1);
+        memcpy(payload_buffer, body_slice.data(), req_size);
+
+        // Corrected snprintf with PRIx64
+        snprintf(payload_buffer + req_size, 17, "%016" PRIx64, checksum);
+
+        HttpRequest request = {};
+        request.path = "/";
+        request.body = payload_buffer;
+        snprintf(content_len_str, sizeof(content_len_str), "%zu", payload_size);
+        request.headers[0] = {"Content-Length", content_len_str};
+        request.num_headers = 1;
+
+        HttpResponse response = {0};
+        err = client.post(&client, &request, &response);
+        ASSERT_EQ(err.type, ErrorType.NONE) << "Request failed on iteration " << i;
+        ASSERT_EQ(response.status_code, 200);
+
+        if (response.body_len >= 35) {
+            size_t res_payload_len = response.body_len - 35;
+            uint64_t calculated_checksum = client_xor_checksum(response.body, res_payload_len);
+            uint64_t received_checksum = 0;
+            // Corrected sscanf with SCNx64
+            sscanf(response.body + res_payload_len, "%16" SCNx64, &received_checksum);
+            ASSERT_EQ(calculated_checksum, received_checksum) << "Client-side checksum mismatch on iteration " << i;
+        } else {
+            ADD_FAILURE() << "Response body was too short on iteration " << i;
+        }
+        http_response_destroy(&response);
+    }
+
+    free(payload_buffer);
+    http_client_destroy(&client);
+}
 
 TEST(HttpClientLifecycle, ClientInitFailsWithInvalidType) {
     HttpClient client = {};
@@ -389,126 +532,18 @@ TEST_F(HttpClientIntegrationTest, TcpClientVectoredPostRequestSucceeds) {
     http_client_destroy(&client);
 }
 
-
-uint64_t client_xor_checksum(const char* data, size_t len) {
-    uint64_t checksum = 0;
-    const unsigned char* p = (const unsigned char*)data;
-    for (size_t i = 0; i < len; ++i) {
-        checksum ^= p[i];
-    }
-    return checksum;
+TEST_F(HttpClientIntegrationTest, MultiRequest_CopyWrite_SafeResponse) {
+    RunMultiRequestLoop(HTTP_IO_COPY_WRITE, HTTP_RESPONSE_SAFE_OWNING);
 }
 
-
-std::string uint64_to_hex(uint64_t val) {
-    std::stringstream ss;
-    ss << std::hex << std::setw(16) << std::setfill('0') << val;
-    return ss.str();
+TEST_F(HttpClientIntegrationTest, MultiRequest_CopyWrite_UnsafeResponse) {
+    RunMultiRequestLoop(HTTP_IO_COPY_WRITE, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
 }
 
+TEST_F(HttpClientIntegrationTest, MultiRequest_VectoredWrite_SafeResponse) {
+    RunMultiRequestLoop(HTTP_IO_VECTORED_WRITE, HTTP_RESPONSE_SAFE_OWNING);
+}
 
-TEST_F(HttpClientIntegrationTest, TcpClientFullVerificationLoop) {
-    const int NUM_CYCLES = 50;
-
-    // --- Define the Server's Logic as a Lambda ---
-    auto server_logic = [NUM_CYCLES](int client_fd) {
-        std::mt19937 gen(4321); // Use a fixed seed for reproducibility
-        std::uniform_int_distribution<char> char_dist(32, 126);
-        std::uniform_int_distribution<size_t> len_dist(512, 1024);
-
-        for (int i = 0; i < NUM_CYCLES; ++i) {
-            std::vector<char> request_buf(2048, 0);
-            ssize_t bytes_read = read(client_fd, request_buf.data(), request_buf.size() - 1);
-            if (bytes_read <= 0) {
-                // Client closed connection prematurely
-                ADD_FAILURE() << "Server failed to read request on iteration " << i;
-                break;
-            }
-
-            // Server-side validation of the client's request
-            const char* req_end = strstr(request_buf.data(), "\r\n\r\n");
-            if (req_end) {
-                const char* body_start = req_end + 4;
-                size_t body_len = bytes_read - (body_start - request_buf.data());
-
-                if (body_len >= 16) {
-                    size_t payload_len = body_len - 16;
-                    uint64_t calculated = client_xor_checksum(body_start, payload_len);
-                    uint64_t received = 0;
-                    sscanf(body_start + payload_len, "%16lx", &received);
-                    ASSERT_EQ(calculated, received) << "Server-side checksum mismatch on iteration " << i;
-                }
-            }
-
-            size_t res_body_len = len_dist(gen);
-            std::string res_payload(res_body_len, '\0');
-            for (char& c : res_payload) { c = char_dist(gen); }
-
-            uint64_t res_checksum = client_xor_checksum(res_payload.c_str(), res_payload.size());
-            std::string res_checksum_hex = uint64_to_hex(res_checksum);
-            std::string timestamp_str = "0"; // Timestamp doesn't need to be real for this test
-            timestamp_str.resize(19, '0');
-
-            std::string final_body = res_payload + res_checksum_hex + timestamp_str;
-            std::string response_str = "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(final_body.length()) + "\r\n\r\n" + final_body;
-            write(client_fd, response_str.c_str(), response_str.length());
-        }
-    };
-
-    // --- Start the Server with our Custom Logic ---
-    StartTcpServer(server_logic);
-
-    // --- Client-Side Logic ---
-    HttpClient client = {};
-    Error err = http_client_init(&client, HttpTransportType.TCP, HttpProtocolType.HTTP1, HTTP_RESPONSE_SAFE_OWNING, HTTP_IO_VECTORED_WRITE);
-    ASSERT_EQ(err.type, ErrorType.NONE);
-
-    err = client.connect(&client, "127.0.0.1", tcp_port);
-    ASSERT_EQ(err.type, ErrorType.NONE);
-
-    std::mt19937 gen(1234); // Use the same fixed seed for the client
-    std::uniform_int_distribution<char> char_dist(32, 126);
-    std::uniform_int_distribution<size_t> len_dist(512, 1024);
-
-    char content_len_str[32];
-    char* payload_buffer = NULL;
-
-    for (int i = 0; i < NUM_CYCLES; ++i) {
-        size_t req_size = len_dist(gen);
-        std::vector<char> body_slice(req_size);
-        for(char& c : body_slice) { c = char_dist(gen); }
-
-        uint64_t checksum = client_xor_checksum(body_slice.data(), req_size);
-        size_t payload_size = req_size + 16;
-        payload_buffer = (char*)realloc(payload_buffer, payload_size + 1);
-        memcpy(payload_buffer, body_slice.data(), req_size);
-        snprintf(payload_buffer + req_size, 17, "%016lx", checksum);
-
-        HttpRequest request = {};
-        request.path = "/";
-        request.body = payload_buffer;
-        snprintf(content_len_str, sizeof(content_len_str), "%zu", payload_size);
-        request.headers[0] = {"Content-Length", content_len_str};
-        request.num_headers = 1;
-
-        HttpResponse response = {0};
-        err = client.post(&client, &request, &response);
-        ASSERT_EQ(err.type, ErrorType.NONE) << "Request failed on iteration " << i;
-        ASSERT_EQ(response.status_code, 200);
-
-        // Client-side validation of the server's response
-        if (response.body_len >= 35) {
-            size_t res_payload_len = response.body_len - 35;
-            uint64_t calculated_checksum = client_xor_checksum(response.body, res_payload_len);
-            uint64_t received_checksum = 0;
-            sscanf(response.body + res_payload_len, "%16lx", &received_checksum);
-            ASSERT_EQ(calculated_checksum, received_checksum) << "Client-side checksum mismatch on iteration " << i;
-        } else {
-            ADD_FAILURE() << "Response body was too short on iteration " << i;
-        }
-        http_response_destroy(&response);
-    }
-
-    free(payload_buffer);
-    http_client_destroy(&client);
+TEST_F(HttpClientIntegrationTest, MultiRequest_VectoredWrite_UnsafeResponse) {
+    RunMultiRequestLoop(HTTP_IO_VECTORED_WRITE, HTTP_RESPONSE_UNSAFE_ZERO_COPY);
 }

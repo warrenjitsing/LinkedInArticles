@@ -6,6 +6,14 @@
 #include <functional>
 #include <vector>
 #include <string>
+#include <random>
+#include <iomanip>
+#include <sstream>
+
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -349,4 +357,168 @@ TYPED_TEST(HttpClientIntegrationTest, PostRequestWithoutContentLengthReturnsErro
     auto result_unsafe = client.post_unsafe(request);
     ASSERT_FALSE(result_unsafe.has_value());
     ASSERT_EQ(std::get<HttpClientError>(result_unsafe.error()), HttpClientError::InvalidRequest);
+}
+
+
+
+namespace {
+    // Helper function for checksum calculation
+    uint64_t xor_checksum(std::span<const std::byte> data) {
+        uint64_t checksum = 0;
+        for (const auto& byte : data) {
+            checksum ^= static_cast<unsigned char>(byte);
+        }
+        return checksum;
+    }
+
+    // Helper function to convert uint64_t to a hex string
+    std::string uint64_to_hex(uint64_t val) {
+        std::stringstream ss;
+        ss << std::hex << std::setw(16) << std::setfill('0') << val;
+        return ss.str();
+    }
+}
+
+TYPED_TEST(HttpClientIntegrationTest, MultiRequestChecksumVerification) {
+    const int NUM_CYCLES = 50;
+
+    // --- Define Server Logic using Boost.Beast for robust parsing ---
+    auto server_logic = [NUM_CYCLES](int client_fd) {
+        namespace beast = boost::beast;
+        namespace http = beast::http;
+        namespace asio = boost::asio;
+
+        boost::system::error_code ec;
+        asio::io_context ioc;
+
+        // Use the appropriate socket type based on the transport being tested
+        using socket_t = typename std::conditional_t<
+            std::is_same_v<typename TestFixture::TransportType, TcpTransport>,
+            asio::ip::tcp::socket,
+            asio::local::stream_protocol::socket
+        >;
+        socket_t stream(ioc);
+        if constexpr (std::is_same_v<typename TestFixture::TransportType, TcpTransport>) {
+            stream.assign(asio::ip::tcp::v4(), client_fd);
+        } else {
+            stream.assign(asio::local::stream_protocol(), client_fd);
+        }
+
+        beast::flat_buffer buffer;
+        std::mt19937 gen(4321);
+        std::uniform_int_distribution<char> char_dist(32, 126);
+        std::uniform_int_distribution<size_t> len_dist(512, 1024);
+
+        // Loop for both safe and unsafe test runs
+        for (int i = 0; i < NUM_CYCLES * 2; ++i) {
+            http::request<http::string_body> req;
+            http::read(stream, buffer, req, ec);
+            if (ec) {
+                if (ec == http::error::end_of_stream) break;
+                ADD_FAILURE() << "Server failed to read request: " << ec.message();
+                return;
+            }
+
+            // Server-side validation
+            const auto& body = req.body();
+            if (body.length() >= 16) {
+                auto payload = std::string_view(body.data(), body.length() - 16);
+                auto checksum_hex = std::string_view(body.data() + payload.length(), 16);
+
+                std::vector<std::byte> payload_bytes(payload.size());
+                std::transform(payload.begin(), payload.end(), payload_bytes.begin(), [](char c){ return std::byte(c); });
+
+                uint64_t calculated = xor_checksum(payload_bytes);
+                uint64_t received = 0;
+                std::stringstream ss;
+                ss << std::hex << checksum_hex;
+                ss >> received;
+                ASSERT_EQ(calculated, received) << "Server-side checksum mismatch on iteration " << i;
+            }
+
+            // Server response
+            size_t res_body_len = len_dist(gen);
+            std::string res_payload(res_body_len, '\0');
+            for (char& c : res_payload) { c = char_dist(gen); }
+
+            std::vector<std::byte> res_payload_bytes(res_payload.size());
+            std::transform(res_payload.begin(), res_payload.end(), res_payload_bytes.begin(), [](char c){ return std::byte(c); });
+
+            uint64_t res_checksum = xor_checksum(res_payload_bytes);
+
+            http::response<http::string_body> res{http::status::ok, req.version()};
+            res.set(http::field::content_type, "text/plain");
+            res.body() = res_payload + uint64_to_hex(res_checksum);
+            res.prepare_payload();
+
+            http::write(stream, res, ec);
+            if (ec) {
+                ADD_FAILURE() << "Server failed to write response: " << ec.message();
+                return;
+            }
+        }
+    };
+
+    this->StartServer(server_logic);
+
+    // --- Client-Side Logic ---
+    HttpClient<Http1Protocol<typename TestFixture::TransportType>> client;
+
+    if constexpr (std::is_same_v<typename TestFixture::TransportType, TcpTransport>) {
+        ASSERT_TRUE(client.connect("127.0.0.1", this->port_).has_value());
+    } else {
+        ASSERT_TRUE(client.connect(this->socket_path_.c_str(), 0).has_value());
+    }
+
+    std::mt19937 gen(1234);
+    std::uniform_int_distribution<char> char_dist(32, 126);
+    std::uniform_int_distribution<size_t> len_dist(512, 1024);
+
+    auto run_client_loop = [&](auto post_method) {
+        for (int i = 0; i < NUM_CYCLES; ++i) {
+            size_t req_size = len_dist(gen);
+            std::string body_content(req_size, '\0');
+            for (char& c : body_content) { c = char_dist(gen); }
+
+            std::vector<std::byte> body_data(req_size);
+            std::transform(body_content.begin(), body_content.end(), body_data.begin(), [](char c){ return std::byte(c); });
+
+            uint64_t checksum = xor_checksum(body_data);
+            std::string checksum_hex = uint64_to_hex(checksum);
+
+            std::vector<std::byte> full_payload = body_data;
+            full_payload.insert(full_payload.end(),
+                reinterpret_cast<const std::byte*>(checksum_hex.data()),
+                reinterpret_cast<const std::byte*>(checksum_hex.data()) + checksum_hex.size());
+
+            HttpRequest request{};
+            request.path = "/";
+            request.body = full_payload;
+            request.headers.emplace_back("Content-Length", std::to_string(full_payload.size()));
+
+            auto result = (client.*post_method)(request);
+            ASSERT_TRUE(result.has_value());
+            const auto& res = *result;
+
+            ASSERT_EQ(res.status_code, 200);
+            ASSERT_GE(res.body.size(), 16);
+
+            auto res_payload = std::span(res.body).subspan(0, res.body.size() - 16);
+            auto res_checksum_bytes = std::span(res.body).subspan(res.body.size() - 16);
+
+            std::string_view res_checksum_hex(reinterpret_cast<const char*>(res_checksum_bytes.data()), 16);
+
+            uint64_t calculated = xor_checksum(res_payload);
+            uint64_t received = 0;
+            std::stringstream ss;
+            ss << std::hex << res_checksum_hex;
+            ss >> received;
+            ASSERT_EQ(calculated, received) << "Client-side checksum mismatch on iteration " << i;
+        }
+    };
+
+    run_client_loop(&HttpClient<Http1Protocol<typename TestFixture::TransportType>>::post_safe);
+    run_client_loop(&HttpClient<Http1Protocol<typename TestFixture::TransportType>>::post_unsafe);
+
+    ASSERT_TRUE(client.disconnect().has_value());
 }
