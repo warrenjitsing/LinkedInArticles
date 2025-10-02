@@ -1,5 +1,7 @@
+use std::fmt;
 use std::str::Utf8Error;
 use std::num::ParseIntError;
+
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -15,6 +17,13 @@ pub enum TransportError {
     InitFailure,
 }
 
+impl fmt::Display for TransportError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl std::error::Error for TransportError {}
+
 #[derive(Debug, PartialEq)]
 pub enum HttpClientError {
     UrlParseFailure,
@@ -23,11 +32,28 @@ pub enum HttpClientError {
     InitFailure,
 }
 
+impl fmt::Display for HttpClientError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl std::error::Error for HttpClientError {}
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Transport(TransportError),
     Http(HttpClientError),
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Transport(e) => write!(f, "Transport Error: {}", e),
+            Error::Http(e) => write!(f, "HTTP Client Error: {}", e),
+        }
+    }
+}
+impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {

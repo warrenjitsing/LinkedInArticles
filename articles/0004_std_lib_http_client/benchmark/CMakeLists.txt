@@ -15,6 +15,6 @@ target_link_libraries(libcurl_client PRIVATE CURL::libcurl)
 
 
 add_executable(httpcpp_client clients/cpp/httpcpp_client.cpp)
-target_link_libraries(httpcpp_client PRIVATE httpcpp_lib)
+target_link_libraries(httpcpp_client PRIVATE httpcpp_lib Boost::program_options)
 add_executable(boost_client clients/cpp/boost_client.cpp)
-target_link_libraries(boost_client PRIVATE Boost::system Boost::thread)
+target_link_libraries(boost_client PRIVATE Boost::system Boost::thread Boost::program_options)
