@@ -28,6 +28,8 @@ static void http_response_parse_headers(Http1Protocol* self, HttpResponse* res, 
 
     if (!line) return;
 
+
+
     self->syscalls->sscanf(line, "HTTP/1.1 %d", &res->status_code);
     res->status_message = self->syscalls->strchr(line, ' ') + 1;
     if (res->status_message) {
@@ -128,6 +130,7 @@ static Error parse_response_unsafe(void* context, HttpResponse* response) {
             char* header_end = self->syscalls->strstr(self->buffer.data, "\r\n\r\n");
             if (header_end) {
                 headers_parsed = true;
+                *header_end = '\0';
                 header_len = (header_end - self->buffer.data) + 4;
                 http_response_parse_headers(self, response, self->buffer.data);
 
@@ -154,7 +157,7 @@ static Error parse_response_unsafe(void* context, HttpResponse* response) {
                     self->buffer.capacity = total_size + 1;
 
                     // Handle the fact that our pointers may have moved for a large enough realloc
-                    // TODO: check this with a te
+                    // TODO: check this with a test
                     if (old_data != new_data) {
                         ptrdiff_t offset = new_data - old_data;
                         response->status_message += offset;
