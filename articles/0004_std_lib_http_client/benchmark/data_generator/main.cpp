@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
 
     std::mt19937 gen(config.seed);
     std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length);
-    std::uniform_int_distribution<unsigned char> char_dist;
+    std::uniform_int_distribution<unsigned char> char_dist(32, 126);
 
     // 1. Write the number of requests
     out_file.write(reinterpret_cast<const char*>(&config.num_requests), sizeof(config.num_requests));

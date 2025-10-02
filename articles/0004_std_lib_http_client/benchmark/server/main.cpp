@@ -100,32 +100,26 @@ ResponseCache generate_responses(const Config& config) {
         return {};
     }
 
-    // 1. Generate the single, large data block *once*.
     cache.data_block.resize(config.max_length);
     std::uniform_int_distribution<char> char_dist(32, 126);
     for (char& c : cache.data_block) {
         c = char_dist(gen);
     }
 
-    // 2. Create a distribution for the *length* of the body views.
     std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length - METADATA_LEN);
 
     cache.body_views.reserve(config.num_responses);
     cache.header_templates.reserve(config.num_responses);
 
     for (int i = 0; i < config.num_responses; ++i) {
-        // 3. For each response, pick a random length for its body.
         size_t body_len = len_dist(gen);
 
-        // 4. Pick a random starting point within the data_block that can accommodate that length.
         std::uniform_int_distribution<size_t> offset_dist(0, config.max_length - body_len);
         size_t start_offset = offset_dist(gen);
 
-        // 5. Create the lightweight string_view. No copy is performed here.
         boost::beast::string_view body_view(&cache.data_block[start_offset], body_len);
         cache.body_views.push_back(body_view);
 
-        // 6. Create the header-only template with the correct Content-Length for this specific view.
         boost::beast::http::response<boost::beast::http::empty_body> header_template;
         header_template.version(11);
         header_template.result(boost::beast::http::status::ok);
@@ -158,6 +152,8 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
         if (config.verify && req.body().size() >= REQ_CHECKSUM_LEN) {
             auto payload_view = boost::beast::string_view(req.body()).substr(0, req.body().size() - REQ_CHECKSUM_LEN);
             auto received_checksum_hex = boost::beast::string_view(req.body()).substr(req.body().size() - REQ_CHECKSUM_LEN);
+            std::cout << "received " << req.body() << std::endl;
+
             uint64_t calculated_checksum = xor_checksum(payload_view);
             uint64_t received_checksum = 0;
             std::stringstream ss;
@@ -186,9 +182,7 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
         res.body().append(checksum_str);
         res.body().append(ts);
 
-        // This is not needed because the header_template already has the correct Content-Length
-        // res.prepare_payload();
-
+        std::cout << "sending " << res.body() << std::endl;
         http::write(stream, res, ec);
 
         response_index = (response_index + 1) % cache.body_views.size();
@@ -253,10 +247,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // The OOM check was removed as per your instruction.
 
     auto response_cache = generate_responses(config);
-    // We now check if the vector inside the struct is empty.
     if (response_cache.body_views.empty()) {
         return 1;
     }
@@ -265,12 +257,10 @@ int main(int argc, char* argv[]) {
 
     if (config.transport_type == "tcp") {
         auto const endpoint = boost::asio::ip::tcp::endpoint{boost::asio::ip::make_address(config.host), config.port};
-        // We now pass the entire response_cache struct.
         do_listen<boost::asio::ip::tcp::acceptor, boost::asio::ip::tcp::endpoint>(ioc, endpoint, response_cache, config);
     } else if (config.transport_type == "unix") {
         std::remove(config.unix_socket_path.c_str());
         auto const endpoint = boost::asio::local::stream_protocol::endpoint{config.unix_socket_path};
-        // We now pass the entire response_cache struct.
         do_listen<boost::asio::local::stream_protocol::acceptor, boost::asio::local::stream_protocol::endpoint>(ioc, endpoint, response_cache, config);
     }
 
