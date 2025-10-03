@@ -56,7 +56,10 @@ bool parse_args(int argc, char* argv[], Config* config) {
     config->port = atoi(argv[2]);
 
     for (int i = 3; i < argc; ++i) {
-        if (strcmp(argv[i], "--num-requests") == 0 && i + 1 < argc) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc) {
+            config->transport = argv[++i];
+        }
+        else if (strcmp(argv[i], "--num-requests") == 0 && i + 1 < argc) {
             config->num_requests = atoll(argv[++i]);
         } else if (strcmp(argv[i], "--data-file") == 0 && i + 1 < argc) {
             config->data_file = argv[++i];
@@ -185,8 +188,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    char url[256];
-    snprintf(url, sizeof(url), "http://%s:%d/", config.host, config.port);
+    if (strcmp(config.transport, "tcp") == 0) {
+        char url[256];
+        snprintf(url, sizeof(url), "http://%s:%d/", config.host, config.port);
+        curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    } else if (strcmp(config.transport, "unix") == 0) {
+        // For Unix, host is the socket path. URL is a dummy for the Host header.
+        curl_easy_setopt(curl_handle, CURLOPT_UNIX_SOCKET_PATH, config.host);
+        curl_easy_setopt(curl_handle, CURLOPT_URL, "http://localhost/");
+    } else {
+        fprintf(stderr, "Error: Invalid transport type '%s'\n", config.transport);
+        return 1;
+    }
 
     GrowableBuffer response_buffer = {0};
     ResponseData response_data = {&response_buffer, latencies, 0, &config};
@@ -195,7 +208,6 @@ int main(int argc, char* argv[]) {
     size_t payload_size = 0;
 
     // Set curl options that are the same for all requests in the loop
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &response_data);
 
