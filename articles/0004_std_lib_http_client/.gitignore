@@ -6,3 +6,4 @@ Cargo.lock
 *pycache*
 src/python/build/
 *.bin
+benchmark.txt
