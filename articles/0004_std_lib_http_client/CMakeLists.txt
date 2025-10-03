@@ -55,6 +55,7 @@ corrosion_import_crate(
 )
 
 add_custom_target(python_wheel
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_SOURCE_DIR}/src/python/build
     COMMAND ${Python_EXECUTABLE} -m build --wheel
             --outdir ${CMAKE_BINARY_DIR}/wheelhouse
             ${CMAKE_SOURCE_DIR}/src/python
