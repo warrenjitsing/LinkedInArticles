@@ -115,7 +115,7 @@ void run_benchmark(Stream& stream, const Config& config, const BenchmarkData& da
         size_t req_size = data.sizes[i % data.sizes.size()];
         std::string_view body_slice(data.data_block.data(), req_size);
 
-        http::request<http::string_body> req{http::verb::post, "/", 11};
+        http::request<http::span_body<const char>> req{http::verb::post, "/", 11};
         req.set(http::field::host, config.host);
 
         if (config.verify) {
@@ -128,12 +128,13 @@ void run_benchmark(Stream& stream, const Config& config, const BenchmarkData& da
             payload_buffer.append(ss.str());
             req.body() = payload_buffer;
         } else {
-            req.body() = std::string(body_slice);
+            req.body() = body_slice;
         }
         req.prepare_payload();
 
         http::write(stream, req);
 
+        // Low level http::response_parser is needed for zero copy read.
         beast::flat_buffer buffer;
         http::response<http::string_body> res;
         http::read(stream, buffer, res);

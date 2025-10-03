@@ -158,6 +158,7 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
             std::stringstream ss;
             ss << std::hex << std::string(received_checksum_hex);
             ss >> received_checksum;
+            std::cout << "received from client: " << payload_view << std::endl;
             if (calculated_checksum != received_checksum) {
                 std::cerr << "Warning: Checksum mismatch from client!" << std::endl;
             }
@@ -180,6 +181,11 @@ void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
         res.body().append(body_view.data(), body_view.size());
         res.body().append(checksum_str);
         res.body().append(ts);
+
+        if (config.verify)
+        {
+            std::cout << "sent to client: " << res.body() << std::endl;
+        }
 
         http::write(stream, res, ec);
 

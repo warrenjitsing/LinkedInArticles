@@ -103,7 +103,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if config.transport_type == "unix" {
         eprintln!("Error: The reqwest crate does not support Unix domain sockets out of the box.");
-        eprintln!("This feature requires an additional dependency like 'reqwest-uds'.");
         return Err("Unsupported transport type".into());
     }
 
@@ -114,6 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let req_size = data.sizes[i as usize % data.sizes.len()] as usize;
         let body_slice = &data.data_block[..req_size];
 
+        // reqwest requires owned block?
         let mut payload = body_slice.to_vec();
         if config.verify {
             let checksum = xor_checksum(body_slice);
