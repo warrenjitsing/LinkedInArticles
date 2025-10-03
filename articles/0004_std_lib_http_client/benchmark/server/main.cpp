@@ -15,9 +15,13 @@
 #include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
-#include <boost/beast/core/multi_buffer.hpp>
 
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace net = boost::asio;
 namespace po = boost::program_options;
+using tcp = net::ip::tcp;
+using local = net::local::stream_protocol;
 
 struct Config {
     std::string transport_type = "tcp";
@@ -33,8 +37,8 @@ struct Config {
 
 struct ResponseCache {
     std::string data_block;
-    std::vector<boost::beast::string_view> body_views;
-    std::vector<boost::beast::http::response<boost::beast::http::empty_body>> header_templates;
+    std::vector<beast::string_view> body_views;
+    std::vector<http::response<http::empty_body>> header_templates;
 };
 
 bool parse_args(int argc, char* argv[], Config& config) {
@@ -75,10 +79,13 @@ bool parse_args(int argc, char* argv[], Config& config) {
     return true;
 }
 
-uint64_t xor_checksum(boost::beast::string_view body) {
-    return std::accumulate(body.begin(), body.end(), std::uint64_t{0}, std::bit_xor<>());
+uint64_t xor_checksum(beast::string_view body) {
+    uint64_t sum = 0;
+    for(char c : body) {
+        sum ^= static_cast<unsigned char>(c);
+    }
+    return sum;
 }
-
 
 std::string get_timestamp_str() {
     auto const now = std::chrono::high_resolution_clock::now();
@@ -88,12 +95,7 @@ std::string get_timestamp_str() {
 
 ResponseCache generate_responses(const Config& config) {
     ResponseCache cache;
-
     std::mt19937 gen(config.seed);
-
-    constexpr size_t CHECKSUM_LEN = 16;
-    constexpr size_t TIMESTAMP_LEN = 19;
-    constexpr size_t METADATA_LEN = CHECKSUM_LEN + TIMESTAMP_LEN;
 
     if (config.min_length > config.max_length) {
         std::cerr << "Error: --min-length cannot be greater than --max-length." << std::endl;
@@ -106,26 +108,27 @@ ResponseCache generate_responses(const Config& config) {
         c = char_dist(gen);
     }
 
-    std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length - METADATA_LEN);
+    std::uniform_int_distribution<size_t> len_dist(config.min_length, config.max_length);
 
     cache.body_views.reserve(config.num_responses);
     cache.header_templates.reserve(config.num_responses);
 
     for (int i = 0; i < config.num_responses; ++i) {
         size_t body_len = len_dist(gen);
+        size_t start_offset = 0;
+        if (config.max_length > body_len) {
+            std::uniform_int_distribution<size_t> offset_dist(0, config.max_length - body_len);
+            start_offset = offset_dist(gen);
+        }
 
-        std::uniform_int_distribution<size_t> offset_dist(0, config.max_length - body_len);
-        size_t start_offset = offset_dist(gen);
-
-        boost::beast::string_view body_view(&cache.data_block[start_offset], body_len);
+        beast::string_view body_view(&cache.data_block[start_offset], body_len);
         cache.body_views.push_back(body_view);
 
-        boost::beast::http::response<boost::beast::http::empty_body> header_template;
+        http::response<http::empty_body> header_template;
         header_template.version(11);
-        header_template.result(boost::beast::http::status::ok);
-        header_template.set(boost::beast::http::field::server, "BenchmarkServer");
-        header_template.set(boost::beast::http::field::content_type, "text/plain");
-        header_template.set(boost::beast::http::field::content_length, std::to_string(body_len + METADATA_LEN));
+        header_template.result(http::status::ok);
+        header_template.set(http::field::server, "BenchmarkServer");
+        header_template.set(http::field::content_type, "application/octet-stream");
         cache.header_templates.push_back(header_template);
     }
 
@@ -134,115 +137,123 @@ ResponseCache generate_responses(const Config& config) {
 }
 
 template<class Stream>
-void do_session(Stream& stream, const ResponseCache& cache, Config& config) {
-    namespace http = boost::beast::http;
-
-    size_t response_index = 0;
-    boost::beast::flat_buffer buffer;
-    boost::system::error_code ec;
+void do_session(Stream& stream, const ResponseCache& cache, const Config& config) {
+    beast::flat_buffer buffer;
+    buffer.reserve(1024 * 1024 + 16);
+    beast::error_code ec;
 
     for (;;) {
-        http::request<http::string_body> req;
-        http::read(stream, buffer, req, ec);
+        http::request_parser<http::buffer_body> parser;
+
+        auto const mutable_buffer = buffer.prepare(1024 * 1024 + 16);
+        parser.get().body().data = mutable_buffer.data();
+        parser.get().body().size = mutable_buffer.size();
+
+        http::read(stream, buffer, parser, ec);
 
         if (ec == http::error::end_of_stream) { break; }
         if (ec) { std::cerr << "Session read error: " << ec.message() << std::endl; break; }
 
-        constexpr size_t REQ_CHECKSUM_LEN = 16;
-        if (config.verify && req.body().size() >= REQ_CHECKSUM_LEN) {
-            auto payload_view = boost::beast::string_view(req.body()).substr(0, req.body().size() - REQ_CHECKSUM_LEN);
-            auto received_checksum_hex = boost::beast::string_view(req.body()).substr(req.body().size() - REQ_CHECKSUM_LEN);
+        beast::string_view req_body_view {
+            static_cast<const char*>(buffer.data().data()),
+            parser.get().body().size
+        };
 
+        if (config.verify && req_body_view.size() >= 16) {
+            auto payload_view = req_body_view.substr(0, req_body_view.size() - 16);
+            auto received_checksum_hex = req_body_view.substr(req_body_view.size() - 16);
             uint64_t calculated_checksum = xor_checksum(payload_view);
             uint64_t received_checksum = 0;
             std::stringstream ss;
             ss << std::hex << std::string(received_checksum_hex);
             ss >> received_checksum;
-            std::cout << "received from client: " << payload_view << std::endl;
             if (calculated_checksum != received_checksum) {
                 std::cerr << "Warning: Checksum mismatch from client!" << std::endl;
             }
         }
 
-        const auto& header_template = cache.header_templates[response_index];
-        const auto& body_view = cache.body_views[response_index];
+        const auto& header_template = cache.header_templates[0];
+        const auto& body_view = cache.body_views[0];
+        std::string ts_str = get_timestamp_str();
 
-        std::string ts = get_timestamp_str();
+        if (config.verify) {
+            uint64_t checksum_val = xor_checksum(body_view);
+            std::stringstream ss;
+            ss << std::hex << std::setw(16) << std::setfill('0') << checksum_val;
+            std::string checksum_str = ss.str();
 
-        uint64_t checksum_val = xor_checksum(body_view);
-        std::stringstream ss;
-        ss << std::hex << std::setw(16) << std::setfill('0') << checksum_val;
-        std::string checksum_str = ss.str();
+            http::response<http::string_body> res;
+            res.base() = header_template;
+            res.body().reserve(body_view.size() + checksum_str.size() + ts_str.size());
+            res.body().append(body_view.data(), body_view.size());
+            res.body().append(checksum_str);
+            res.body().append(ts_str);
+            res.prepare_payload();
 
-        http::response<http::string_body> res;
-        res.base() = header_template;
+            http::write(stream, res, ec);
+        } else {
+            http::response<http::span_body<const char>> res;
+            res.base() = header_template;
+            res.body() = { body_view.data(), body_view.size() };
+            res.set(http::field::content_length, std::to_string(body_view.size() + ts_str.size()));
 
-        res.body().reserve(body_view.size() + checksum_str.size() + ts.size());
-        res.body().append(body_view.data(), body_view.size());
-        res.body().append(checksum_str);
-        res.body().append(ts);
+            http::serializer<false, decltype(res)::body_type> sr{res};
+            http::write_header(stream, sr, ec);
 
-        if (config.verify)
-        {
-            std::cout << "sent to client: " << res.body() << std::endl;
+            if (!ec) {
+                std::array<net::const_buffer, 2> buffers = {
+                    net::buffer(body_view.data(), body_view.size()),
+                    net::buffer(ts_str)
+                };
+                net::write(stream, buffers, ec);
+            }
         }
 
-        http::write(stream, res, ec);
-
-        response_index = (response_index + 1) % cache.body_views.size();
-
         if (ec) { std::cerr << "Session write error: " << ec.message() << std::endl; break; }
-        if (!req.keep_alive()) { break; }
+
+        bool const keep_alive = parser.get().keep_alive();
+
+        buffer.consume(buffer.size());
+
+        if (!keep_alive) { break; }
     }
 
-    if constexpr (std::is_same_v<typename Stream::protocol_type, boost::asio::ip::tcp>) {
-        stream.shutdown(boost::asio::ip::tcp::socket::shutdown_send, ec);
+    if constexpr (std::is_same_v<typename Stream::protocol_type, tcp>) {
+        stream.shutdown(tcp::socket::shutdown_send, ec);
     } else {
-        stream.shutdown(boost::asio::local::stream_protocol::socket::shutdown_send, ec);
+        stream.shutdown(local::socket::shutdown_send, ec);
     }
 }
 
-template<class Acceptor, class Endpoint>
-void do_listen(boost::asio::io_context& ioc, const Endpoint& endpoint, const ResponseCache& cache, Config& config) {
-    boost::system::error_code ec;
 
+template<class Acceptor, class Endpoint>
+void do_listen(net::io_context& ioc, const Endpoint& endpoint, const ResponseCache& cache, const Config& config) {
+    beast::error_code ec;
     Acceptor acceptor(ioc);
 
     acceptor.open(endpoint.protocol(), ec);
-    if(ec) {
-        std::cerr << "Failed to open acceptor: " << ec.message() << std::endl;
-        return;
-    }
+    if(ec) { std::cerr << "Failed to open acceptor: " << ec.message() << std::endl; return; }
 
-    acceptor.set_option(boost::asio::socket_base::reuse_address(true), ec);
-    if(ec) {
-        std::cerr << "Failed to set reuse_address: " << ec.message() << std::endl;
-        return;
-    }
+    acceptor.set_option(net::socket_base::reuse_address(true), ec);
+    if(ec) { std::cerr << "Failed to set reuse_address: " << ec.message() << std::endl; return; }
 
     acceptor.bind(endpoint, ec);
-    if(ec) {
-        std::cerr << "Failed to bind to endpoint: " << ec.message() << std::endl;
-        return;
+    if(ec) { std::cerr << "Failed to bind to endpoint: " << ec.message() << std::endl; return; }
+
+    acceptor.listen(net::socket_base::max_listen_connections, ec);
+    if(ec) { std::cerr << "Failed to listen on endpoint: " << ec.message() << std::endl; return; }
+
+    std::cout << "Server listening for connections..." << std::endl;
+    for(;;)
+    {
+        auto socket = acceptor.accept(ioc, ec);
+        if(ec)
+        {
+            std::cerr << "Failed to accept connection: " << ec.message() << std::endl;
+            break;
+        }
+        do_session(socket, cache, config);
     }
-
-    acceptor.listen(boost::asio::socket_base::max_listen_connections, ec);
-    if(ec) {
-        std::cerr << "Failed to listen on endpoint: " << ec.message() << std::endl;
-        return;
-    }
-
-    std::cout << "Server listening for a single connection..." << std::endl;
-
-    auto socket = acceptor.accept(ioc, ec);
-    if(ec) {
-        std::cerr << "Failed to accept connection: " << ec.message() << std::endl;
-        return;
-    }
-
-    do_session(socket, cache, config);
-
-    std::cout << "Session complete. Server shutting down." << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -251,21 +262,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-
     auto response_cache = generate_responses(config);
     if (response_cache.body_views.empty()) {
         return 1;
     }
 
-    boost::asio::io_context ioc;
+    net::io_context ioc;
 
     if (config.transport_type == "tcp") {
-        auto const endpoint = boost::asio::ip::tcp::endpoint{boost::asio::ip::make_address(config.host), config.port};
-        do_listen<boost::asio::ip::tcp::acceptor, boost::asio::ip::tcp::endpoint>(ioc, endpoint, response_cache, config);
+        auto const endpoint = tcp::endpoint{net::ip::make_address(config.host), config.port};
+        do_listen<tcp::acceptor, tcp::endpoint>(ioc, endpoint, response_cache, config);
     } else if (config.transport_type == "unix") {
         std::remove(config.unix_socket_path.c_str());
-        auto const endpoint = boost::asio::local::stream_protocol::endpoint{config.unix_socket_path};
-        do_listen<boost::asio::local::stream_protocol::acceptor, boost::asio::local::stream_protocol::endpoint>(ioc, endpoint, response_cache, config);
+        auto const endpoint = local::endpoint{config.unix_socket_path};
+        do_listen<local::acceptor, local::endpoint>(ioc, endpoint, response_cache, config);
     }
 
     return 0;

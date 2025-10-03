@@ -4,8 +4,10 @@
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <stdbool.h> // Use standard boolean types for C23
 #include <curl/curl.h>
 
+// Struct definitions are preserved from your original implementation
 typedef struct {
     char* host;
     int port;
@@ -31,6 +33,14 @@ typedef struct {
     size_t capacity;
 } GrowableBuffer;
 
+// NEW: Context for the read callback (zero-copy path).
+typedef struct {
+    const char* body_ptr;
+    size_t total_size;
+    size_t sent_size;
+} ReadContext;
+
+// This struct is passed to the write_callback.
 typedef struct {
     GrowableBuffer* response_buffer;
     int64_t* latencies;
@@ -38,6 +48,8 @@ typedef struct {
     const Config* config;
 } ResponseData;
 
+
+// (parse_args, read_benchmark_data, xor_checksum, get_nanoseconds are unchanged)
 bool parse_args(int argc, char* argv[], Config* config) {
     config->transport = "tcp";
     config->num_requests = 1000;
@@ -136,7 +148,18 @@ uint64_t get_nanoseconds() {
     return (uint64_t)ts.tv_sec * 1000000000 + (uint64_t)ts.tv_nsec;
 }
 
+size_t read_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    ReadContext* ctx = (ReadContext*)userdata;
+    size_t buffer_size = size * nitems;
+    size_t remaining = ctx->total_size - ctx->sent_size;
+    size_t bytes_to_copy = (buffer_size < remaining) ? buffer_size : remaining;
 
+    if (bytes_to_copy) {
+        memcpy(buffer, ctx->body_ptr + ctx->sent_size, bytes_to_copy);
+        ctx->sent_size += bytes_to_copy;
+    }
+    return bytes_to_copy;
+}
 
 size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     size_t real_size = size * nmemb;
@@ -151,7 +174,7 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
         char* new_data = realloc(buf->data, new_capacity);
         if (!new_data) {
             fprintf(stderr, "Failed to reallocate response buffer\n");
-            return 0; // Returning 0 signals an error to curl
+            return 0;
         }
         buf->data = new_data;
         buf->capacity = new_capacity;
@@ -162,7 +185,6 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
 
     return real_size;
 }
-
 
 int main(int argc, char* argv[]) {
     Config config;
@@ -193,7 +215,6 @@ int main(int argc, char* argv[]) {
         snprintf(url, sizeof(url), "http://%s:%d/", config.host, config.port);
         curl_easy_setopt(curl_handle, CURLOPT_URL, url);
     } else if (strcmp(config.transport, "unix") == 0) {
-        // For Unix, host is the socket path. URL is a dummy for the Host header.
         curl_easy_setopt(curl_handle, CURLOPT_UNIX_SOCKET_PATH, config.host);
         curl_easy_setopt(curl_handle, CURLOPT_URL, "http://localhost/");
     } else {
@@ -203,11 +224,11 @@ int main(int argc, char* argv[]) {
 
     GrowableBuffer response_buffer = {0};
     ResponseData response_data = {&response_buffer, latencies, 0, &config};
+    ReadContext read_context = {0};
+    char* payload_buffer = NULL; // For the verify path only
 
-    char* payload_buffer = NULL;
-    size_t payload_size = 0;
-
-    // Set curl options that are the same for all requests in the loop
+    // Set curl options that are the same for all requests
+    curl_easy_setopt(curl_handle, CURLOPT_POST, 1L);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &response_data);
 
@@ -218,19 +239,34 @@ int main(int argc, char* argv[]) {
         size_t req_size = benchmark_data.sizes[i % benchmark_data.num_requests];
         const char* body_slice = benchmark_data.data_block;
 
-
         if (config.verify) {
+            // **NON-ZERO-COPY PATH (with verification)**
+            // Disable the read callback in case it was set from a previous iteration
+            curl_easy_setopt(curl_handle, CURLOPT_READFUNCTION, NULL);
+
             uint64_t checksum = xor_checksum(body_slice, req_size);
-            payload_size = req_size + 16;
+            size_t payload_size = req_size + 16;
             payload_buffer = realloc(payload_buffer, payload_size + 1);
             memcpy(payload_buffer, body_slice, req_size);
             snprintf(payload_buffer + req_size, 17, "%016" PRIx64, checksum);
 
+            // Use POSTFIELDS, which makes a copy of our `payload_buffer`
             curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload_buffer);
             curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, payload_size);
         } else {
-            curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body_slice);
-            curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE, req_size);
+            // **ZERO-COPY PATH (no verification)**
+            // Disable POSTFIELDS in case it was set from a previous iteration
+            curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, NULL);
+
+            // Set up the context for our read callback
+            read_context.body_ptr = body_slice;
+            read_context.total_size = req_size;
+            read_context.sent_size = 0;
+
+            // Enable the read callback
+            curl_easy_setopt(curl_handle, CURLOPT_READFUNCTION, read_callback);
+            curl_easy_setopt(curl_handle, CURLOPT_READDATA, &read_context);
+            curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)req_size);
         }
 
         CURLcode res = curl_easy_perform(curl_handle);
@@ -241,27 +277,34 @@ int main(int argc, char* argv[]) {
             break;
         }
 
-        // The callback has now filled response_buffer. Process it.
         const char* res_body = response_buffer.data;
         size_t res_body_len = response_buffer.len;
 
         if (config.verify) {
-            const char* res_payload = res_body;
-            size_t res_payload_len = res_body_len - 35;
-            const char* res_checksum_hex = res_body + res_payload_len;
+            if (res_body_len < 35) {
+                 fprintf(stderr, "Warning: Response body too short for verification on request %lu!\n", i);
+            } else {
+                const char* res_payload = res_body;
+                size_t res_payload_len = res_body_len - 35;
+                const char* res_checksum_hex = res_body + res_payload_len;
 
-            uint64_t calculated_checksum = xor_checksum(res_payload, res_payload_len);
-            uint64_t received_checksum = 0;
-            sscanf(res_checksum_hex, "%16lx", &received_checksum);
+                uint64_t calculated_checksum = xor_checksum(res_payload, res_payload_len);
+                uint64_t received_checksum = 0;
+                sscanf(res_checksum_hex, "%16lx", &received_checksum);
 
-            if (calculated_checksum != received_checksum) {
-                fprintf(stderr, "Warning: Response checksum mismatch on request %lu!\n", i);
+                if (calculated_checksum != received_checksum) {
+                    fprintf(stderr, "Warning: Response checksum mismatch on request %lu!\n", i);
+                }
             }
         }
 
-        const char* server_timestamp_str = res_body + (res_body_len - 19);
-        uint64_t server_timestamp = atoll(server_timestamp_str);
-        latencies[i] = client_receive_time - server_timestamp;
+        if (res_body_len < 19) {
+            fprintf(stderr, "Warning: Response body too short for timestamp on request %lu!\n", i);
+        } else {
+            const char* server_timestamp_str = res_body + (res_body_len - 19);
+            uint64_t server_timestamp = atoll(server_timestamp_str);
+            latencies[i] = client_receive_time - server_timestamp;
+        }
     }
 
     curl_easy_cleanup(curl_handle);
@@ -273,6 +316,7 @@ int main(int argc, char* argv[]) {
         fclose(out_file);
     }
 
+    // Clean up all allocated memory
     free(payload_buffer);
     free(response_buffer.data);
     free(latencies);

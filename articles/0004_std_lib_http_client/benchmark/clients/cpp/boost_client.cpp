@@ -110,49 +110,62 @@ template<class Stream>
 void run_benchmark(Stream& stream, const Config& config, const BenchmarkData& data) {
     std::vector<int64_t> latencies(config.num_requests);
     std::string payload_buffer;
+    beast::error_code ec;
+
+    // A single, reusable buffer for all socket reads
+    beast::flat_buffer buffer;
 
     for (uint64_t i = 0; i < config.num_requests; ++i) {
         size_t req_size = data.sizes[i % data.sizes.size()];
         std::string_view body_slice(data.data_block.data(), req_size);
 
+        // Zero copy write in the no verify case
         http::request<http::span_body<const char>> req{http::verb::post, "/", 11};
         req.set(http::field::host, config.host);
+        req.keep_alive(true); // Ensure connection is reused
 
         if (config.verify) {
             uint64_t checksum = xor_checksum(body_slice);
             std::stringstream ss;
             ss << std::hex << std::setw(16) << std::setfill('0') << checksum;
-
-            payload_buffer.reserve(req_size + 16);
             payload_buffer.assign(body_slice);
             payload_buffer.append(ss.str());
-            req.body() = payload_buffer;
+            req.body() = {payload_buffer.data(), payload_buffer.size()};
         } else {
-            req.body() = body_slice;
+            req.body() = {body_slice.data(), body_slice.size()};
         }
         req.prepare_payload();
+        http::write(stream, req, ec);
+        if(ec) { std::cerr << "Write failed: " << ec.message() << std::endl; break; }
 
-        http::write(stream, req);
+        // Preallocated buffer method for reading a response vs http::read
+        http::response_parser<http::empty_body> parser;
+        parser.skip(true);
 
-        // Low level http::response_parser is needed for zero copy read.
-        beast::flat_buffer buffer;
-        http::response<http::string_body> res;
-        http::read(stream, buffer, res);
+        http::read_header(stream, buffer, parser, ec);
+        if(ec) { std::cerr << "Read header failed: " << ec.message() << std::endl; break; }
+
+        if (parser.content_length()) {
+            size_t body_size = *parser.content_length();
+            buffer.reserve(body_size);
+            while(buffer.size() < body_size) {
+                size_t bytes_to_read = body_size - buffer.size();
+                size_t bytes_read = stream.read_some(buffer.prepare(bytes_to_read), ec);
+                buffer.commit(bytes_read);
+                if(ec == http::error::end_of_stream) break;
+                if(ec) { std::cerr << "Read body failed: " << ec.message() << std::endl; goto end_loop; }
+            }
+        }
         auto client_receive_time = get_nanoseconds();
 
-        if (res.result() != http::status::ok) {
-            std::cerr << "Request failed with status: " << res.result_int() << std::endl;
-            break;
-        }
+        std::string_view body(static_cast<const char*>(buffer.data().data()), buffer.size());
 
-        const auto& body = res.body();
         if (config.verify) {
             if (body.length() < 35) {
-                std::cerr << "Warning: Response body too short for verification on request " << i << std::endl;
+                std::cerr << "Warning: Response body too short on request " << i << std::endl;
             } else {
-                auto res_payload = std::string_view(body).substr(0, body.length() - 35);
-                auto res_checksum_hex = std::string_view(body).substr(body.length() - 35, 16);
-
+                auto res_payload = body.substr(0, body.length() - 35);
+                auto res_checksum_hex = body.substr(body.length() - 35, 16);
                 uint64_t calculated = xor_checksum(res_payload);
                 uint64_t received = 0;
                 std::stringstream ss;
@@ -164,10 +177,13 @@ void run_benchmark(Stream& stream, const Config& config, const BenchmarkData& da
             }
         }
 
-        auto server_timestamp_str = std::string_view(body).substr(body.length() - 19);
+        auto server_timestamp_str = body.substr(body.length() - 19);
         uint64_t server_timestamp = std::stoull(std::string(server_timestamp_str));
         latencies[i] = client_receive_time - server_timestamp;
+
+        buffer.consume(buffer.size());
     }
+end_loop:;
 
     std::ofstream out_file(config.output_file, std::ios::binary);
     if (out_file) {

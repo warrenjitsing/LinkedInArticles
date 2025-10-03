@@ -8,9 +8,9 @@ set -e
 # ==============================================================================
 
 # --- Configuration ---
-NUM_REQUESTS=10000
-WARMUP_RUNS=1       # Reduced for faster iteration, can be increased for final runs
-BENCHMARK_RUNS=3    # Reduced for faster iteration, can be increased for final runs
+NUM_REQUESTS=20000
+WARMUP_RUNS=1
+BENCHMARK_RUNS=10
 
 BUILD_DIR="build_release"
 LATENCY_DIR="latencies"
@@ -55,6 +55,7 @@ function run_benchmark_scenario {
         header "Running Scenario: '$scenario_name' (Transport: $transport)"
 
         local setup_cmd="$server_cmd & echo \$! > server.pid; sleep 2"
+        echo $setup_cmd
         local cleanup_cmd="kill \$(ps aux | grep [b]enchmark_server | awk '{print $2;}'); sleep 1"
 
         local output_prefix="${LATENCY_DIR}/latencies"
