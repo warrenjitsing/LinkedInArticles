@@ -16,6 +16,8 @@ mkdir -p repos data articles viewer
 docker run -it \
   --name "dev-container" \
   --restart always \
+  --cap-add=SYS_NICE \
+  --cap-add=SYS_PTRACE \
   $GPU_FLAG \
   -v "$(pwd)/articles:/home/$USERNAME/articles" \
   -v "$(pwd)/viewer:/home/$USERNAME/viewer" \
